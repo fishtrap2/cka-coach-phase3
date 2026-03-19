@@ -1,0 +1,196 @@
+model: ELS_K8S
+version: 1.0
+
+layers:
+
+  - id: 9
+    name: applications
+    description: User-facing application logic
+    lives: application processes inside containers
+    execution_type: user_process
+    depends_on: [8]
+    primary_interfaces: []
+    debug_commands:
+      - kubectl logs <pod>
+      - kubectl exec -it <pod> -- /bin/sh
+
+  - id: 8
+    name: application_pods
+    description: Pod abstraction wrapping one or more containers
+    lives: kubelet-managed containers on nodes
+    execution_type: abstraction
+    depends_on: [7,4]
+    primary_interfaces:
+      - kubelet
+    debug_commands:
+      - kubectl get pods -o wide
+      - kubectl describe pod <name>
+
+  - id: 7
+    name: kubernetes_objects
+    description: Desired state definitions stored in API server
+    lives: etcd via kube-apiserver
+    execution_type: data
+    depends_on: [6.5]
+    primary_interfaces:
+      - kubectl
+      - kube-apiserver
+    debug_commands:
+      - kubectl get <resource>
+      - kubectl describe <resource>
+      - kubectl get events
+
+  - id: "6.5"
+    name: api_layer
+    description: Kubernetes API server and etcd (state store)
+    lives: control-plane node (containers or processes)
+    execution_type: long_running_daemon
+    depends_on: [5]
+    primary_interfaces:
+      - REST API
+    debug_commands:
+      - kubectl get componentstatuses
+      - kubectl cluster-info
+      - crictl ps | grep kube-apiserver
+
+  - id: 6
+    name: operators
+    description: Custom controllers with domain-specific logic
+    lives: pods in cluster
+    execution_type: long_running_daemon
+    depends_on: [7,6.5]
+    primary_interfaces:
+      - kube-apiserver
+    debug_commands:
+      - kubectl get pods -n <operator-namespace>
+      - kubectl logs <operator-pod>
+
+  - id: 5
+    name: controllers
+    description: Core reconciliation loops (deployment, replicaset, node)
+    lives: kube-controller-manager
+    execution_type: long_running_daemon
+    depends_on: [6.5]
+    primary_interfaces:
+      - kube-apiserver
+    debug_commands:
+      - kubectl get events
+      - kubectl describe deployment <name>
+
+  - id: 4
+    name: node_agents_and_networking
+    description: Node-level control and networking components
+    subcomponents:
+      - name: kubelet
+        type: long_running_daemon
+        debug:
+          - systemctl status kubelet
+          - journalctl -u kubelet -f
+      - name: kube-proxy
+        type: long_running_daemon
+        debug:
+          - iptables -L -n -v
+      - name: cni
+        type: short_lived_executable
+        debug:
+          - ls /etc/cni/net.d/
+          - ip addr
+          - ip route
+    lives: worker nodes
+    execution_type: mixed
+    depends_on: [3]
+    primary_interfaces:
+      - CRI
+      - kernel networking
+
+  - id: 3
+    name: container_runtime
+    description: CRI implementation (e.g., containerd)
+    lives: systemd service on node
+    execution_type: long_running_daemon
+    depends_on: [2]
+    primary_interfaces:
+      - CRI (gRPC)
+    debug_commands:
+      - systemctl status containerd
+      - crictl ps
+      - crictl inspect <id>
+
+  - id: 2
+    name: oci_runtime
+    description: Low-level container executor (e.g., runc)
+    lives: invoked by container runtime
+    execution_type: short_lived_executable
+    depends_on: [1]
+    primary_interfaces:
+      - OCI spec
+    debug_commands:
+      - ps aux | grep runc
+
+  - id: 1
+    name: linux_kernel
+    description: Kernel providing namespaces, cgroups, networking
+    lives: guest OS inside VM
+    execution_type: persistent_state_machine
+    depends_on: [0]
+    primary_interfaces:
+      - syscalls
+    debug_commands:
+      - lsns
+      - cat /proc/cgroups
+      - ip addr
+      - dmesg
+
+  - id: 0
+    name: virtual_hardware
+    description: Virtualized CPU, memory, network interfaces
+    lives: hypervisor-provided abstraction
+    execution_type: virtualization_layer
+    depends_on: []
+    primary_interfaces:
+      - virtual devices
+    debug_commands:
+      - lscpu
+      - lsblk
+
+infrastructure:
+  hypervisor:
+    managed_by: cloud_provider
+    visibility: none
+  physical_hardware:
+    managed_by: cloud_provider
+    visibility: none
+
+api_boundaries:
+  - from: kubectl
+    to: kube-apiserver
+    protocol: REST
+
+  - from: kubelet
+    to: container_runtime
+    protocol: CRI (gRPC)
+
+  - from: container_runtime
+    to: oci_runtime
+    protocol: OCI
+
+  - from: processes
+    to: kernel
+    protocol: syscalls
+
+relationships:
+  - type: reconciliation
+    from: controllers
+    to: kubernetes_objects
+
+  - type: execution
+    from: kubelet
+    to: container_runtime
+
+  - type: execution
+    from: container_runtime
+    to: oci_runtime
+
+  - type: enforcement
+    from: linux_kernel
+    to: containers
