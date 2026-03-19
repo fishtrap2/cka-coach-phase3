@@ -1,5 +1,8 @@
-import src/schemas/els-schema.yaml
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
 def load_els_model():
-    with open("models/els_model.yaml", "r") as f:
+    path = os.path.join(BASE_DIR, "schemas", "els_model.yaml")
+    with open(path, "r") as f:
         return yaml.safe_load(f)
