@@ -1,6 +1,16 @@
 import streamlit as st
 import sys
 import os
+import json
+
+#clean json responses from LLM 
+def clean_json_response(response: str):
+    # Remove markdown code fences if present
+    if "```" in response:
+        response = response.split("```")[1]
+        response = response.replace("json", "").strip()
+    return response
+
 # Ensure src/ is on path
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 from state_collector import collect_state
@@ -30,4 +40,10 @@ for i, (layer, data) in enumerate(els.items()):
                     f"Explain what is happening in {layer}",
                     context=data
                 )
-                st.json(explanation)
+                cleaned = clean_json_response(explanation)
+                try:
+                   parsed = json.loads(cleaned)
+                   st.json(parsed)
+                except Exception as e:
+                   st.error("JSON Parse Error")
+                   st.text(explanation)
