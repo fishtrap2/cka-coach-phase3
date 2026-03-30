@@ -12,7 +12,7 @@ from agent import ask_llm
 # --------------------------
 # Retro Styling
 # --------------------------
-table_html=("""
+table_html="""
 <style>
 body {
     background-color: black;
@@ -48,7 +48,7 @@ body {
     color: red;
 }
 </style>
-""", unsafe_allow_html=True)
+"""
 
 st.title("🧠 CKA Coach — ELS Console")
 
@@ -115,7 +115,7 @@ layers = [
 # --------------------------
 # Render Table
 # --------------------------
-table_html = """
+table_html += """
 <table class="els-table">
 <tr>
 <th style="width:40px">Lvl</th>
