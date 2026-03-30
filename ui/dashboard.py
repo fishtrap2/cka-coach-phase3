@@ -115,7 +115,7 @@ layers = [
 # --------------------------
 # Render Table
 # --------------------------
-html = """
+table_html = """
 <table class="els-table">
 <tr>
 <th style="width:40px">Lvl</th>
@@ -131,7 +131,7 @@ for lvl, name, lives, exec_type, api, key in layers:
     current, ok = summary.get(key, ("...", True))
     health = "🟢" if ok else "🔴"
 
-    html += f"""
+    table_html += f"""
     <tr>
         <td>{lvl}</td>
         <td><div class="layer-name">{name}</div>{health}</td>
@@ -142,9 +142,12 @@ for lvl, name, lives, exec_type, api, key in layers:
     </tr>
     """
 
-html += "</table>"
+table_html += "</table>"
 st.write("Rendering table now...")
-st.markdown(html, unsafe_allow_html=True)
+
+import streamlit.components.v1 as components
+components.html(table_html, height=500, scrolling=True)
+
 st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
 # --------------------------
