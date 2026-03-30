@@ -144,8 +144,6 @@ for lvl, name, lives, exec_type, api, key in layers:
 
 html += "</table>"
 
-st.markdown(html, unsafe_allow_html=True)
-
 st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
 # --------------------------
@@ -175,3 +173,5 @@ for lvl, name, _, _, _, key in layers:
     with col2:
         with st.expander(f"Expand L{lvl} — {name}"):
             st.text(state.get("pods", "")[:1000])
+
+st.markdown(html, unsafe_allow_html=True)
