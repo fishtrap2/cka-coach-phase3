@@ -12,7 +12,7 @@ from agent import ask_llm
 # --------------------------
 # Retro Styling
 # --------------------------
-st.markdown("""
+table_html=("""
 <style>
 body {
     background-color: black;
