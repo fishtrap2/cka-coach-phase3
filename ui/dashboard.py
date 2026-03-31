@@ -140,6 +140,7 @@ for lvl, name, description, lives, exec_type, api, key in layers:
     <tr>
         <td>{lvl}</td>
         <td><div class="layer-name">{name}</div>{health}</td>
+        <td>{description}</td>
         <td>{lives}</td>
         <td>{exec_type}</td>
         <td>{api}</td>
@@ -160,7 +161,7 @@ st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 # --------------------------
 st.divider()
 
-for lvl, name, _, _, _, key in layers:
+for lvl, name, _, _, _, _, key in layers:
     col1, col2 = st.columns([1, 3])
 
     with col1:
