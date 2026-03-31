@@ -108,7 +108,7 @@ layers = [
     ("6", "Operators", "Custom controllers with domain-specific logic", "pods in cluster", "long_running_daemon", "kubectl get pods -n <operator-namespace>", "L6"),
     ("5", "Controllers", "Core reconciliation loops (deployment, replicaset, node)", "kube-controller-manager (is itself  a static pod)", "long running daemon", "kubectl get pods --all-namespaces", "L5"),
     ("4.1", "kubelet", "node level control agent", "workers and control plane nodes' systemd/PID1", "long running system service", "systemctl status kubelet", "L4.1"),
-    ("4.2", "kube-proxy", "tasked with managing network connectivity for Pods", "lives as a kube-system pod (may be replaced by CNI plugins), "long running daemon", "iptables -L -n -v", "L4.2"),
+    ("4.2", "kube-proxy", "tasked with managing network connectivity for Pods", "lives as a kube-system pod (may be replaced by CNI plugins)", "long running daemon", "iptables -L -n -v", "L4.2"),
     ("4.3", "cni", "Container Network Interface & Plugin", "runs long enough to create veth pairs, assign IPs, attach pod to a bridge etc.", "short lived executable", "sudo ls /etc/cni/net.d/, ip route", "L4.3"),   
     ("3", "Container Runtime Interface - CRI (e.g. containerd or CRI-O)", "Enables node-level container management (start/stop/pull) by the kubelet.",  "systemd service on node", "CRI daemon", "crictl", "L4"),
     ("2", "OCI (runc)", "Low-level container executor or shim (e.g., runc)", "invoked by the CRI", "short lived executable", "ps aux | grep runc", "L2"),
