@@ -12,6 +12,7 @@ from agent import ask_llm
 # --------------------------
 # Retro Styling
 # --------------------------
+st.set_page_config(layout="wide")
 table_html="""
 <style>
 body {
