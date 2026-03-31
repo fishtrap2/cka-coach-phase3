@@ -103,7 +103,7 @@ with st.spinner("Collecting state..."):
 layers = [
     ("9", "Applications", "User-facing application logic", "application processes living inside containers", "app specific", "unkown", "L9"),
     ("8", "Pods", "Pod abstraction wrapping one or more containers", "kubelet-managed containers on nodes", "abstraction/meta", "kubectl get pods -o wide", "L8"),
-    ("7", "K8S Objects", "Desired state definitions stored in API server", "Persistent state(etcd via kube-apiserver)", "kubectl cluster-info, kubectl config view", "L7"),
+    ("7", "K8S Objects", "Desired state definitions stored in API server", "Persistent state(etcd via kube-apiserver)", "abstraction/meta data", "kubectl cluster-info, kubectl config view", "L7"),
     ("6.5", "K8S API Layer", "Kubernetes API server and etcd (cluster state store)", "control-plane node (containers or processes)", "long_running_daemon", "kubectl get componentstatuses", "L6.5"),
     ("6", "Operators", "Custom controllers with domain-specific logic", "pods in cluster", "long_running_daemon", "kubectl get pods -n <operator-namespace>", "L6"),
     ("5", "Controllers", "Core reconciliation loops (deployment, replicaset, node)", "kube-controller-manager (is itself  a static pod)", "long running daemon", "kubectl get pods --all-namespaces", "L5"),
