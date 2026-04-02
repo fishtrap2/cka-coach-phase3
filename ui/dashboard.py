@@ -213,7 +213,8 @@ for lvl, name, description, lives, exec_type, api, key in layers:
 
 st.write("Rendering table now...")
 
-st.markdown(table_html, unsafe_allow_html=True)
+import streamlit.components.v1 as components
+components.html(table_html, height=500, scrolling=True)
 
 st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
