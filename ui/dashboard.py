@@ -253,7 +253,7 @@ table_html += f"""
 </table>
 """
 import streamlit.components.v1 as components
-components.html(html, height=500, scrolling=True)
+components.html(table_html, height=500, scrolling=True)
 
 st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
