@@ -3,9 +3,11 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 class ELSResult(TypedDict, total=False):
     layer: str
+    layer_number: str
+    layer_name: str
     explanation: str
     next_steps: List[str]
-
+    mapped_context: dict
 
 class LearningResult(TypedDict, total=False):
     kubernetes: str

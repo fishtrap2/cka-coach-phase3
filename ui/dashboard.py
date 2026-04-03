@@ -274,13 +274,10 @@ table_html += f"""
 </table>
 """
 import streamlit.components.v1 as components
-components.html(table_html, height=1000, scrolling=True)
+components.html(table_html, height=800, scrolling=True)
 
 st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 
-# --------------------------
-# Explain + Expand
-# --------------------------
 # --------------------------
 # Explain + Expand
 # --------------------------
@@ -327,15 +324,21 @@ for lvl, name, _, _, _, _, key in layers:
                 els = parsed.get("els", {})
                 st.markdown("#### ELS Analysis")
                 st.markdown(f"**Layer:** {els.get('layer', 'Unknown')}")
+                st.markdown(f"**Layer Number:** {els.get('layer_number', '')}")
+                st.markdown(f"**Layer Name:** {els.get('layer_name', '')}")
                 st.markdown("**Explanation:**")
                 st.write(els.get("explanation", ""))
 
                 next_steps = els.get("next_steps", [])
                 if next_steps:
-                    st.markdown("**Next Steps:**")
-                    for step in next_steps:
-                        st.write(f"- {step}")
+                  st.markdown("**Next Steps:**")
+                  for step in next_steps:
+                     st.write(f"- {step}")
 
+                mapped_context = els.get("mapped_context", {})
+                if mapped_context:
+                   with st.expander("ELS mapped context"):
+                       st.json(mapped_context)
             with tab_answer:
                 st.markdown("#### Answer")
                 st.write(parsed.get("answer", ""))
