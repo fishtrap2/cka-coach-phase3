@@ -10,7 +10,9 @@ from state_collector import collect_state
 from agent import ask_llm
 
 st.set_page_config(layout="wide")
+
 st.title("🧠 CKA Coach — ELS Console")
+st.subheader("Everything Lives Somewhere...")
 
 # --------------------------
 # Retro Styling (separate from table HTML)
