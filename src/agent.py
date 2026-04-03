@@ -154,7 +154,6 @@ Return JSON with exactly this shape:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=OPENAI_TEMPERATURE,
         )
 
         raw = response.output_text
