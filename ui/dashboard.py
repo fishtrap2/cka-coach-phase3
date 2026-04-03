@@ -171,6 +171,25 @@ def get_expand_text(key: str, state: dict) -> str:
         "health": health,
     }, indent=2))
 
+def normalize_explanation_output(explanation):
+    """
+    Supports either:
+    - dict output (preferred Gen2 path)
+    - JSON string output
+    - fenced ```json ... ``` output
+    """
+    if isinstance(explanation, dict):
+        return explanation
+
+    if not isinstance(explanation, str):
+        return {"error": f"Unexpected response type: {type(explanation).__name__}"}
+
+    cleaned = clean_json(explanation)
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        return {"raw_text": explanation}
 
 # --------------------------
 # Collect State
@@ -262,28 +281,10 @@ st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 # --------------------------
 # Explain + Expand
 # --------------------------
+# --------------------------
+# Explain + Expand
+# --------------------------
 st.divider()
-
-def normalize_explanation_output(explanation):
-    """
-    Supports either:
-    - dict output (preferred Gen2 path)
-    - JSON string output
-    - fenced ```json ... ``` output
-    """
-    if isinstance(explanation, dict):
-        return explanation
-
-    if not isinstance(explanation, str):
-        return {"error": f"Unexpected response type: {type(explanation).__name__}"}
-
-    cleaned = clean_json(explanation)
-
-    try:
-        return json.loads(cleaned)
-    except Exception:
-        return {"raw_text": explanation}
-
 
 for lvl, name, _, _, _, _, key in layers:
     row_col1, row_col2 = st.columns([1, 3])
@@ -307,7 +308,6 @@ for lvl, name, _, _, _, _, key in layers:
 
         st.markdown(f"### Layer {lvl} — {name}")
 
-        # Full-width output area so it doesn't get squeezed into the left column
         with st.container():
             if "error" in parsed:
                 st.error(parsed["error"])
@@ -319,8 +319,8 @@ for lvl, name, _, _, _, _, key in layers:
                 st.write(parsed["raw_text"])
                 continue
 
-            tab_els, tab_answer, tab_learning, tab_raw = st.tabs(
-                ["ELS", "Answer", "Learning", "Raw JSON"]
+            tab_els, tab_answer, tab_learning, tab_trace, tab_raw = st.tabs(
+                ["ELS", "Answer", "Learning", "Trace", "Raw JSON"]
             )
 
             with tab_els:
@@ -345,6 +345,12 @@ for lvl, name, _, _, _, _, key in layers:
                     st.markdown("#### Summary")
                     st.write(summary)
 
+                warnings = parsed.get("warnings", [])
+                if warnings:
+                    st.markdown("#### Warnings")
+                    for warning in warnings:
+                        st.warning(warning)
+
             with tab_learning:
                 learning = parsed.get("learning", {})
 
@@ -364,11 +370,15 @@ for lvl, name, _, _, _, _, key in layers:
                     st.markdown("#### Product")
                     st.write(learning.get("product", "No Product learning view returned."))
 
-                warnings = parsed.get("warnings", [])
-                if warnings:
-                    st.markdown("#### Warnings")
-                    for warning in warnings:
-                        st.warning(warning)
+            with tab_trace:
+                trace = parsed.get("agent_trace", [])
+                if trace:
+                    for step in trace:
+                        with st.expander(f"Step {step.get('step', '?')}: {step.get('action', '')}"):
+                            st.markdown(f"**Why:** {step.get('why', '')}")
+                            st.markdown(f"**Outcome:** {step.get('outcome', '')}")
+                else:
+                    st.write("No agent trace returned.")
 
             with tab_raw:
                 st.json(parsed)
