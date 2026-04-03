@@ -262,48 +262,111 @@ st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 # --------------------------
 st.divider()
 
+def normalize_explanation_output(explanation):
+    """
+    Supports either:
+    - dict output (preferred Gen2 path)
+    - JSON string output
+    - fenced ```json ... ``` output
+    """
+    if isinstance(explanation, dict):
+        return explanation
+
+    if not isinstance(explanation, str):
+        return {"error": f"Unexpected response type: {type(explanation).__name__}"}
+
+    cleaned = clean_json(explanation)
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        return {"raw_text": explanation}
+
+
 for lvl, name, _, _, _, _, key in layers:
-    col1, col2 = st.columns([1, 3])
+    row_col1, row_col2 = st.columns([1, 3])
 
-    with col1:
-        if st.button(f"Explain L{lvl}", key=f"btn_{lvl}"):
-            explanation = ask_llm(
-                f"Explain current state of {name}",
-                context=get_expand_text(key, state)
-            )
+    clicked = False
 
-            cleaned = clean_json(explanation)
+    with row_col1:
+        clicked = st.button(f"Explain L{lvl}", key=f"btn_{lvl}")
 
-            try:
-                parsed = json.loads(cleaned)
-
-                st.subheader("ELS Analysis")
-                st.write(parsed.get("els", {}))
-
-                st.subheader("Answer")
-                st.write(parsed.get("answer", ""))
-
-                st.subheader("Learning Views")
-
-                colA, colB = st.columns(2)
-
-                with colA:
-                    st.markdown("**Kubernetes**")
-                    st.write(parsed["learning"]["kubernetes"])
-
-                    st.markdown("**AI / Agents**")
-                    st.write(parsed["learning"]["ai"])
-
-                with colB:
-                    st.markdown("**Platform**")
-                    st.write(parsed["learning"]["platform"])
-
-                    st.markdown("**Product**")
-                    st.write(parsed["learning"]["product"])
-
-            except Exception:
-                st.code(explanation)
-
-    with col2:
+    with row_col2:
         with st.expander(f"Expand L{lvl} — {name}"):
             st.text(get_expand_text(key, state)[:3000])
+
+    if clicked:
+        explanation = ask_llm(
+            f"Explain current state of {name}",
+            context=get_expand_text(key, state)
+        )
+
+        parsed = normalize_explanation_output(explanation)
+
+        st.markdown(f"### Layer {lvl} — {name}")
+
+        # Full-width output area so it doesn't get squeezed into the left column
+        with st.container():
+            if "error" in parsed:
+                st.error(parsed["error"])
+                st.code(str(explanation))
+                continue
+
+            if "raw_text" in parsed:
+                st.subheader("Answer")
+                st.write(parsed["raw_text"])
+                continue
+
+            tab_els, tab_answer, tab_learning, tab_raw = st.tabs(
+                ["ELS", "Answer", "Learning", "Raw JSON"]
+            )
+
+            with tab_els:
+                els = parsed.get("els", {})
+                st.markdown("#### ELS Analysis")
+                st.markdown(f"**Layer:** {els.get('layer', 'Unknown')}")
+                st.markdown("**Explanation:**")
+                st.write(els.get("explanation", ""))
+
+                next_steps = els.get("next_steps", [])
+                if next_steps:
+                    st.markdown("**Next Steps:**")
+                    for step in next_steps:
+                        st.write(f"- {step}")
+
+            with tab_answer:
+                st.markdown("#### Answer")
+                st.write(parsed.get("answer", ""))
+
+                summary = parsed.get("summary", "")
+                if summary:
+                    st.markdown("#### Summary")
+                    st.write(summary)
+
+            with tab_learning:
+                learning = parsed.get("learning", {})
+
+                learn_col1, learn_col2 = st.columns(2)
+
+                with learn_col1:
+                    st.markdown("#### Kubernetes")
+                    st.write(learning.get("kubernetes", "No Kubernetes learning view returned."))
+
+                    st.markdown("#### AI / Agents")
+                    st.write(learning.get("ai", "No AI / Agents learning view returned."))
+
+                with learn_col2:
+                    st.markdown("#### Platform")
+                    st.write(learning.get("platform", "No Platform learning view returned."))
+
+                    st.markdown("#### Product")
+                    st.write(learning.get("product", "No Product learning view returned."))
+
+                warnings = parsed.get("warnings", [])
+                if warnings:
+                    st.markdown("#### Warnings")
+                    for warning in warnings:
+                        st.warning(warning)
+
+            with tab_raw:
+                st.json(parsed)
