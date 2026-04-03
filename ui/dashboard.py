@@ -287,19 +287,19 @@ for lvl, name, _, _, _, _, key in layers:
 
                 colA, colB = st.columns(2)
 
-            with colA:
-                st.markdown("**Kubernetes**")
-                st.write(parsed["learning"]["kubernetes"])
+                with colA:
+                    st.markdown("**Kubernetes**")
+                    st.write(parsed["learning"]["kubernetes"])
 
-                st.markdown("**AI / Agents**")
-                st.write(parsed["learning"]["ai"])
+                    st.markdown("**AI / Agents**")
+                    st.write(parsed["learning"]["ai"])
 
-            with colB:
-                st.markdown("**Platform**")
-                st.write(parsed["learning"]["platform"])
+                with colB:
+                    st.markdown("**Platform**")
+                    st.write(parsed["learning"]["platform"])
 
-                st.markdown("**Product**")
-                st.write(parsed["learning"]["product"])
+                    st.markdown("**Product**")
+                    st.write(parsed["learning"]["product"])
 
             except Exception:
                 st.code(explanation)
