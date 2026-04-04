@@ -1,7 +1,8 @@
 # cka-coach (Phase 1 Prototype)
->
-> Vision: Why leave the cluster to read a book or watch a video, shouldn't the cluster teach you inside it?
->
+
+**Vision: Why leave the cluster to read a book or watch a video, shouldn't the cluster teach you inside it?**
+
+**Why?**
 > The idea of cka coach comes from someone who was walking thru the Linux Foundation - CKA course - LFS258
 > And two things become crystal (Painpoints from a PM perspective):
 > 
