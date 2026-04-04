@@ -295,7 +295,7 @@ table_html += f"""
 <table class="els-table">
     <tr>
         <th style="width:40px">Lvl</th>
-        <th style="width:120px">Layer</th>
+        <th style="width:120px">Layer (health)</th>
         <th style="width:140px">Version</th>
         <th style="width:240px">Description</th>
         <th style="width:240px">Lives</th>
