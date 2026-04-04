@@ -453,7 +453,7 @@ That means the student is learning both:
 """
         )
 
-components.html(architecture_html, height=520, scrolling=False)
+render_architecture_panel()
 
 # --------------------------
 # Collect State
