@@ -14,6 +14,7 @@ from agent import ask_llm
 st.set_page_config(layout="wide")
 st.title("🧠 CKA Coach — ELS Console")
 st.subheader("Everything Lives Somewhere...")
+st.caption("A layered Kubernetes learning console powered by structured evidence, the ELS model, and AI explanation.")
 
 # --------------------------
 # Retro Styling
