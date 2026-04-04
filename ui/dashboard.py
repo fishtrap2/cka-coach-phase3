@@ -224,12 +224,9 @@ def render_architecture_panel():
     """
     Render a simple architecture diagram / mental model above the ELS table.
 
-    Goal:
-    help the student understand what they are looking at:
-    - the ELS table is the core system view
-    - Explain uses AI + deterministic ELS reasoning
-    - Expand shows raw evidence
-    - cka-coach itself can run as a pod inside the cluster
+    Use components.html() instead of st.markdown(..., unsafe_allow_html=True)
+    because this block is complex enough that Streamlit markdown may partially
+    render or leak raw HTML tags.
     """
     st.markdown("## How cka-coach works")
     st.caption(
@@ -237,13 +234,21 @@ def render_architecture_panel():
     )
 
     architecture_html = """
+    <html>
+    <head>
     <style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f7fffc;
+    }
+
     .arch-wrap {
         border: 1px solid #00aa88;
         border-radius: 10px;
         padding: 14px;
-        margin-bottom: 18px;
         background: #f7fffc;
+        box-sizing: border-box;
     }
 
     .arch-grid {
@@ -261,6 +266,7 @@ def render_architecture_panel():
         padding: 12px;
         background: white;
         min-height: 110px;
+        box-sizing: border-box;
     }
 
     .arch-title {
@@ -296,6 +302,7 @@ def render_architecture_panel():
         padding: 10px;
         background: #ffffff;
         min-height: 120px;
+        box-sizing: border-box;
     }
 
     .arch-small-title {
@@ -324,99 +331,110 @@ def render_architecture_panel():
         font-weight: 600;
         margin-bottom: 6px;
     }
+
+    ul {
+        margin: 6px 0 0 18px;
+        padding: 0;
+    }
+
+    li {
+        margin-bottom: 4px;
+    }
     </style>
+    </head>
+    <body>
+      <div class="arch-wrap">
+        <div class="arch-grid">
+          <div class="arch-box">
+            <div class="arch-title">1. Student / UI</div>
+            <div class="arch-text">
+              The student uses the <b>ELS Console</b> to inspect the cluster.
+              <ul>
+                <li>read the ELS layer table</li>
+                <li>click <b>Explain Lx</b> for AI help</li>
+                <li>open <b>Expand Lx</b> for raw evidence</li>
+              </ul>
+            </div>
+          </div>
 
-    <div class="arch-wrap">
-      <div class="arch-grid">
-        <div class="arch-box">
-          <div class="arch-title">1. Student / UI</div>
-          <div class="arch-text">
-            The student uses the <b>ELS Console</b> to inspect the cluster.<br><br>
-            They can:
-            <ul>
-              <li>read the ELS layer table</li>
-              <li>click <b>Explain Lx</b> for AI help</li>
-              <li>open <b>Expand Lx</b> for raw evidence</li>
-            </ul>
+          <div class="arch-arrow">→</div>
+
+          <div class="arch-box">
+            <div class="arch-pill">Can run as a pod in the student's cluster</div>
+            <div class="arch-title">2. cka-coach Gen2</div>
+            <div class="arch-text">
+              cka-coach collects structured cluster state, maps it into the
+              <b>ELS model</b>, and then uses an LLM to explain what is happening.
+              This is the core of the learning system.
+            </div>
+          </div>
+
+          <div class="arch-arrow">→</div>
+
+          <div class="arch-box">
+            <div class="arch-title">3. Student-facing output</div>
+            <div class="arch-text">
+              The console below shows:
+              <ul>
+                <li><b>ELS table</b> = layered system view</li>
+                <li><b>Explain</b> = deterministic ELS + AI explanation</li>
+                <li><b>Expand</b> = raw collected evidence</li>
+              </ul>
+            </div>
           </div>
         </div>
 
-        <div class="arch-arrow">→</div>
+        <div class="arch-subgrid">
+          <div class="arch-small">
+            <div class="arch-small-title">State Collector</div>
+            <div class="arch-text">
+              Collects structured evidence from:
+              <ul>
+                <li>pods</li>
+                <li>events</li>
+                <li>nodes</li>
+                <li>kubelet</li>
+                <li>containerd</li>
+                <li>network / routes</li>
+              </ul>
+            </div>
+          </div>
 
-        <div class="arch-box">
-          <div class="arch-pill">Can run as a pod in the student's cluster</div>
-          <div class="arch-title">2. cka-coach Gen2</div>
-          <div class="arch-text">
-            cka-coach collects structured cluster state, maps it into the
-            <b>ELS model</b>, and then uses an LLM to explain what is happening.<br><br>
-            This is the core of the learning system.
+          <div class="arch-small">
+            <div class="arch-small-title">ELS Core</div>
+            <div class="arch-text">
+              The deterministic core of cka-coach.
+              It maps evidence into the Expanded Layered Stack so students learn
+              <b>where things live</b> and how layers relate.
+            </div>
+          </div>
+
+          <div class="arch-small">
+            <div class="arch-small-title">AI / Agent Layer</div>
+            <div class="arch-text">
+              The LLM does <b>explanation</b>, not truth creation.
+              It teaches through:
+              <ul>
+                <li>Kubernetes</li>
+                <li>AI / Agents</li>
+                <li>Platform</li>
+                <li>Product</li>
+              </ul>
+            </div>
           </div>
         </div>
 
-        <div class="arch-arrow">→</div>
-
-        <div class="arch-box">
-          <div class="arch-title">3. Student-facing output</div>
-          <div class="arch-text">
-            The console below shows:
-            <ul>
-              <li><b>ELS table</b> = layered system view</li>
-              <li><b>Explain</b> = deterministic ELS + AI explanation</li>
-              <li><b>Expand</b> = raw collected evidence</li>
-            </ul>
-          </div>
+        <div class="arch-note">
+          <b>Reading guide:</b> The ELS table below is the live layered view of the cluster.
+          <b>Expand</b> shows the raw evidence for a layer.
+          <b>Explain</b> uses structured state + deterministic ELS reasoning + the LLM to teach what that layer means.
         </div>
       </div>
-
-      <div class="arch-subgrid">
-        <div class="arch-small">
-          <div class="arch-small-title">State Collector</div>
-          <div class="arch-text">
-            Collects structured evidence from:
-            <ul>
-              <li>pods</li>
-              <li>events</li>
-              <li>nodes</li>
-              <li>kubelet</li>
-              <li>containerd</li>
-              <li>network / routes</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="arch-small">
-          <div class="arch-small-title">ELS Core</div>
-          <div class="arch-text">
-            The deterministic core of cka-coach.
-            It maps evidence into the Expanded Layered Stack so students learn
-            <b>where things live</b> and how layers relate.
-          </div>
-        </div>
-
-        <div class="arch-small">
-          <div class="arch-small-title">AI / Agent Layer</div>
-          <div class="arch-text">
-            The LLM does <b>explanation</b>, not truth creation.
-            It teaches through:
-            <ul>
-              <li>Kubernetes</li>
-              <li>AI / Agents</li>
-              <li>Platform</li>
-              <li>Product</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <div class="arch-note">
-        <b>Reading guide:</b> The ELS table below is the live layered view of the cluster.
-        <b>Expand</b> shows the raw evidence for a layer.
-        <b>Explain</b> uses structured state + deterministic ELS reasoning + the LLM to teach the student what that layer means.
-      </div>
-    </div>
+    </body>
+    </html>
     """
 
-    st.markdown(architecture_html, unsafe_allow_html=True)
+    components.html(architecture_html, height=520, scrolling=False)
 
     with st.expander("Why this is Gen2 and not just a simple chatbot"):
         st.markdown(
@@ -435,7 +453,7 @@ That means the student is learning both:
 """
         )
 
-render_architecture_panel()
+components.html(architecture_html, height=520, scrolling=False)
 
 # --------------------------
 # Collect State
