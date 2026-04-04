@@ -453,7 +453,8 @@ That means the student is learning both:
 """
         )
 
-render_architecture_panel()
+with st.expander("Show cka-coach Gen2 architecture", expanded=False):
+    render_architecture_panel()
 
 # --------------------------
 # Collect State
