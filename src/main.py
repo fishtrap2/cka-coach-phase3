@@ -56,7 +56,19 @@ def scan():
 
 
 @app.command()
-def ask(question: str):
+def ask(
+    question: str,
+    concise: bool = typer.Option(
+        False,
+        "--concise",
+        help="Only show Summary, Answer, Next Steps, and Warnings.",
+    ),
+    allow_web: bool = typer.Option(
+        False,
+        "--allow-web",
+        help="Allow the agent/LLM to use external web information when needed.",
+    ),
+):
     """
     Ask cka-coach a question from the CLI.
 
@@ -69,14 +81,16 @@ def ask(question: str):
 
     Example:
       python src/main.py ask "where does kubelet run?"
+      python src/main.py ask "is kubernetes v1.33.1 compatible with calico 3.30?" --concise --allow-web
     """
     # Use the same structured collection path as the dashboard.
     # This is important because we want one trustworthy source of evidence
     # for both CLI and UI.
     state = collect_state()
 
-    # ask_llm() now expects structured collected state, not a raw text blob.
-    result = ask_llm(question, state)
+    # Pass through the new switches.
+    # NOTE: ask_llm() must be updated to accept these keyword args.
+    result = ask_llm(question, state, concise=concise, allow_web=allow_web)
 
     # Hard error path: the OpenAI call or agent logic failed.
     if result.get("error"):
@@ -103,6 +117,28 @@ def ask(question: str):
     # -------
     print("\n[bold]Answer[/bold]")
     print(result.get("answer", ""))
+
+    # -------------------------
+    # Concise mode ends here,
+    # except for Next Steps and Warnings
+    # -------------------------
+    if concise:
+        next_steps = (
+            result.get("next_steps")
+            or result.get("els", {}).get("next_steps", [])
+        )
+        if next_steps:
+            print("\n[bold]Next Steps[/bold]")
+            for step in next_steps:
+                print(f"- {step}")
+
+        warnings = result.get("warnings", [])
+        if warnings:
+            print("\n[bold]Warnings[/bold]")
+            for warning in warnings:
+                print(f"- {warning}")
+
+        return
 
     # ----
     # ELS
@@ -152,8 +188,6 @@ def ask(question: str):
     # ---------
     # Warnings
     # ---------
-    # Warnings are useful when the model is making a reasonable explanation
-    # from incomplete evidence and we want to be transparent about that.
     warnings = result.get("warnings", [])
     if warnings:
         print("\n[bold]Warnings[/bold]")
