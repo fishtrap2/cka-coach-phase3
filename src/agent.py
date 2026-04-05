@@ -340,20 +340,14 @@ def ask_llm(question: str, collected_state: dict, concise: bool = False, allow_w
         system_prompt = """
 You are cka-coach, a Kubernetes + AI systems tutor.
 
-You MUST:
+Rules:
 - Treat the provided ELS result as deterministic project logic
 - For kubelet, kube-proxy, and CNI be more explicit & verbose in your responses (e.g. kubelet is not a pod, it is a systemd service, state clearly which CNI plugin is being use)
-- Use ONLY the provided context
+- Base answers on the provided data and instructions.
 - Avoid guessing when evidence is incomplete
-- Explain through 4 lenses:
-  1. Kubernetes
-  2. AI / Agents
-  3. Platform Engineering
-  4. Product Thinking
-
-Return ONLY valid JSON.
-Do not wrap the JSON in markdown fences.
-Do not add commentary before or after the JSON.
+- Return ONLY valid JSON.
+- Do not wrap the JSON in markdown fences.
+- Do not add commentary before or after the JSON.
 """
 
         user_prompt = f"""
@@ -361,7 +355,7 @@ DATA:
 {json.dumps(payload, indent=2)}
 
 If "concise" is true:
-- Keep summary and answer short (2-4 sentences)
+- Keep summary and answer short (4-8 sentences)
 - Keep answer focused and direct
 - Keep next_steps minimal (max 3)
 - Limit warnings to severe or critical items (BUT ALWAYS Security ISSUES)
@@ -391,7 +385,18 @@ Return JSON with exactly this shape:
   "warnings": ["warning 1"]
 }}
 """
-
+         #System vs. User Roles:
+         #System --> Permanent rules of the product:
+         #  you are cka-coach
+         #  deterministic ELS is authoritative
+         #  output must be valid JSON
+         #  do not invent agent trace
+         #User or Per-request details:
+         #     here is the question
+         #     here is the collected state
+         #     concise = true/false
+         #     allow_web = true/false
+         #     here is the exact output schema
         response = client.responses.create(
             model=OPENAI_MODEL,
             input=[
