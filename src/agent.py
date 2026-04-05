@@ -338,38 +338,40 @@ def ask_llm(question: str, collected_state: dict, concise: bool = False, allow_w
         }
 
         knowledge_policy = """
-        Use only the provided cluster context.
-        Do not use outside knowledge.
-        """
+Use only the provided cluster context.
+Do not use outside knowledge.
+"""
 
-       if allow_web:
-           knowledge_policy = """
-       Use the provided cluster context first.
-       You may also use general background knowledge when needed.
-       Do NOT claim to have performed a live web lookup.
-       For compatibility, support matrix, or version questions:
-       - clearly separate cluster evidence from background knowledge
-       - state when official vendor documentation is still required for confirmation
-       """
+        if allow_web:
+            knowledge_policy = """
+Use the provided cluster context first.
+You may also use general background knowledge when needed.
+Do NOT claim to have performed a live web lookup.
+For compatibility, support matrix, or version questions:
+- clearly separate cluster evidence from background knowledge
+- state when official vendor documentation is still required for confirmation
+"""
 
-       concise_policy = ""
-       if concise:
-         concise_policy = """
-       Keep summary and answer short and direct.
-       Keep next_steps to at most 3 items.
-       Keep warnings minimal and important.
-       """
-       system_prompt = """
+        concise_policy = ""
+        if concise:
+            concise_policy = """
+Keep summary and answer short and direct.
+Keep next_steps to at most 3 items.
+Keep warnings minimal and important.
+"""
+
+        system_prompt = f"""
 You are cka-coach, a Kubernetes + AI systems tutor.
 
 Rules:
 - Treat the provided ELS result as deterministic project logic
-- For kubelet, kube-proxy, and CNI be more explicit & verbose in your responses (e.g. kubelet is not a pod, it is a systemd service, state clearly which CNI plugin is being use)
+- For kubelet, kube-proxy, and CNI be more explicit and clear in your responses (for example: kubelet is not a pod, it is a systemd service; clearly state which CNI plugin is in use if evidence is present)
 - Base answers on the provided data and instructions.
-- Avoid guessing when evidence is incomplete
+- Avoid guessing when evidence is incomplete.
 - Return ONLY valid JSON.
 - Do not wrap the JSON in markdown fences.
 - Do not add commentary before or after the JSON.
+
 Knowledge policy:
 {knowledge_policy}
 
@@ -400,18 +402,7 @@ Return JSON with exactly this shape:
   "warnings": ["warning 1"]
 }}
 """
-         #System vs. User Roles:
-         #System --> Permanent rules of the product:
-         #  you are cka-coach
-         #  deterministic ELS is authoritative
-         #  output must be valid JSON
-         #  do not invent agent trace
-         #User or Per-request details:
-         #     here is the question
-         #     here is the collected state
-         #     concise = true/false
-         #     allow_web = true/false
-         #     here is the exact output schema
+
         response = client.responses.create(
             model=OPENAI_MODEL,
             input=[

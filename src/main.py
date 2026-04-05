@@ -109,7 +109,7 @@ def ask(
     # --------
     # Summary
     # --------
-    print("\n[bold]Summary[/bold]")
+    print("\n[bold]Summary API USING: ({OPENAI_MODEL})[/bold]")
     print(result.get("summary", ""))
 
     # -------
