@@ -147,13 +147,13 @@ def ask(
     # This is the deterministic project-side ELS result.
     # It is generated in Python and attached after the LLM response so that
     # the app remains consistent and trustworthy.
-    els = result.get("els", {})
+    #els = result.get("els", {})
 
-    print("\n[bold]ELS[/bold]")
-    print(f"Layer: {els.get('layer', '')}")
-    print(f"Layer Number: {els.get('layer_number', '')}")
-    print(f"Layer Name: {els.get('layer_name', '')}")
-    print(els.get("explanation", ""))
+    #print("\n[bold]ELS[/bold]")
+    #print(f"Layer: {els.get('layer', '')}")
+    #print(f"Layer Number: {els.get('layer_number', '')}")
+    #print(f"Layer Name: {els.get('layer_name', '')}")
+    #print(els.get("explanation", ""))
 
     next_steps = els.get("next_steps", [])
     if next_steps:
@@ -170,21 +170,21 @@ def ask(
     # - AI / Agents
     # - Platform Engineering
     # - Product Thinking
-    learning = result.get("learning", {})
+    #learning = result.get("learning", {})
 
-    print("\n[bold]Learning[/bold]")
+    #print("\n[bold]Learning[/bold]")
 
-    print("\n[Kubernetes]")
-    print(learning.get("kubernetes", ""))
+    #print("\n[Kubernetes]")
+    #print(learning.get("kubernetes", ""))
 
-    print("\n[AI / Agents]")
-    print(learning.get("ai", ""))
+    #print("\n[AI / Agents]")
+    #print(learning.get("ai", ""))
 
-    print("\n[Platform]")
-    print(learning.get("platform", ""))
+    #print("\n[Platform]")
+    #print(learning.get("platform", ""))
 
-    print("\n[Product]")
-    print(learning.get("product", ""))
+    #print("\n[Product]")
+    #print(learning.get("product", ""))
 
     # ---------
     # Warnings
@@ -200,13 +200,13 @@ def ask(
     # -----------
     # This is deterministic agent-side reasoning, not a model-invented trace.
     # It shows the student how cka-coach approached the question.
-    trace = result.get("agent_trace", [])
-    if trace:
-        print("\n[bold]Agent Trace[/bold]")
-        for step in trace:
-            print(f"\nStep {step.get('step', '?')}: {step.get('action', '')}")
-            print(f"  Why: {step.get('why', '')}")
-            print(f"  Outcome: {step.get('outcome', '')}")
+    #trace = result.get("agent_trace", [])
+    #if trace:
+    #    print("\n[bold]Agent Trace[/bold]")
+    #    for step in trace:
+    #        print(f"\nStep {step.get('step', '?')}: {step.get('action', '')}")
+    #        print(f"  Why: {step.get('why', '')}")
+    #        print(f"  Outcome: {step.get('outcome', '')}")
 
 
 if __name__ == "__main__":
