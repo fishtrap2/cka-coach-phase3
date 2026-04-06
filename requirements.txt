@@ -1,5 +1,28 @@
-openai
-typer
-rich
-pydantic
+# -----------------------------------------------------------------------------
+# cka-coach requirements (Phase 1)
+#
+# Philosophy:
+# - keep only top-level dependencies (what we directly import)
+# - avoid freezing every transitive dependency
+# - use version ranges for stability without being brittle
+# -----------------------------------------------------------------------------
 
+# --- UI Layer ---
+streamlit>=1.32,<2.0
+
+# --- AI Layer ---
+openai>=1.30,<2.0
+
+# --- CLI Layer ---
+typer>=0.12,<1.0
+rich>=13.7,<14.0
+
+# --- Data / Modeling ---
+pydantic>=2.6,<3.0
+
+# --- Kubernetes Integration ---
+kubernetes>=29.0,<31.0
+
+# --- Utilities ---
+requests>=2.31,<3.0
+python-dotenv>=1.0,<2.0

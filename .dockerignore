@@ -1,0 +1,24 @@
+# Python virtual environments should never be copied into the image
+venv
+.venv
+
+# Python cache artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Git metadata is not needed inside the runtime image
+.git
+.gitignore
+
+# Local secrets should never be baked into the image
+.env
+
+# macOS noise
+.DS_Store
+
+# Optional local build artifacts
+dist
+build
+*.egg-info
