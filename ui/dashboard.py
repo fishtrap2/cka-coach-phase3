@@ -604,7 +604,9 @@ st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
 st.warning(
     "Running in container mode: host-level checks (e.g. kubelet, systemctl) may be unavailable. "
     "Cluster API access requires kubeconfig or in-cluster credentials."
-    "\nKEY: 🟢 = confirmed healthy; 🔴 = confirmed unhealthy; 🟡 = unknown / visibility-limited (NEW default for Phase 1 container mode)"
+)
+st.warning(
+    "KEY: 🟢 = confirmed healthy; 🔴 = confirmed unhealthy; 🟡 = unknown / visibility-limited (NEW default for Phase 1 container mode)"
 )
 
 # --------------------------
