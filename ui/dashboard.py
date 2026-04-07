@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit.components.v1 import html as st_html
 import sys
 import os
 import json
@@ -158,10 +158,26 @@ def summarize(state: dict) -> dict:
         "L6.5": (f"API server / etcd | {api_ver or 'unknown'}", True),
         "L6": ("Operators / custom controllers", True),
         "L5": ("kube-controller-manager", True),
-        "L4.1": ("kubelet running" if kubelet_ok else "kubelet issue", kubelet_ok),
+        
+        if kubelet_ok is True:
+            kubelet_text = "kubelet running"
+        elif kubelet_ok is False:
+            kubelet_text = "kubelet issue"
+        else:
+            kubelet_text = "kubelet status unknown (no host access)"
+
+        "L4.1": (kubelet_text, kubelet_ok is True),
         "L4.2": ("kube-proxy / service routing", True),
         "L4.3": (f"CNI config: {cni_name or 'unknown'}", True),
-        "L3": ("containerd running" if containerd_ok else "containerd issue", containerd_ok),
+        
+        if containerd_ok is True:
+            containerd_text = "containerd running"
+        elif containerd_ok is False:
+            containerd_text = "containerd issue"
+        else:
+            containerd_text = "containerd status unknown"
+
+        "L3": (containerd_text, containerd_ok is True),
         "L2": (runc_ver or "runc version unknown", True),
         "L1": (f"kernel {kernel_ver or 'unknown'}", True),
         "L0": ("VM / virtual hardware", True),
@@ -433,8 +449,8 @@ def render_architecture_panel():
     </body>
     </html>
     """
-
-    components.html(architecture_html, height=520, scrolling=False)
+    
+    st_html(architecture_html, height=520, scrolling=False)
 
     with st.expander("Why this is Gen2 and not just a simple chatbot"):
         st.markdown(
@@ -498,18 +514,37 @@ for lvl, name, description, lives, exec_type, api, key in layers:
     current, ok = summary.get(key, ("...", True))
     version = versions_map.get(key, "")
 
+    # --- Status model ---
+    # 🟢 = confirmed healthy
+    # 🔴 = confirmed unhealthy
+    # 🟡 = unknown / visibility-limited (NEW default for Phase 1 container mode)
+
+    row_color = "#332200"   # amber default
+    health_icon = "🟡"
+
+    # --- RED (explicit failures) ---
     if key == "L8" and (health.get("pods_pending", False) or health.get("pods_crashloop", False)):
         row_color = "#220000"
         health_icon = "🔴"
-    elif key == "L4.1" and not health.get("kubelet_ok", True):
+
+    elif key == "L4.1" and health.get("kubelet_ok") is False:
         row_color = "#220000"
         health_icon = "🔴"
-    elif key == "L3" and not health.get("containerd_ok", True):
+
+    elif key == "L3" and health.get("containerd_ok") is False:
         row_color = "#220000"
         health_icon = "🔴"
-    else:
+
+    # --- GREEN (explicitly confirmed healthy ONLY) ---
+    elif key == "L4.1" and health.get("kubelet_ok") is True:
         row_color = "#001100"
         health_icon = "🟢"
+
+    elif key == "L3" and health.get("containerd_ok") is True:
+        row_color = "#001100"
+        health_icon = "🟢"
+
+    # --- everything else stays AMBER ---
 
     rows += f"""
     <tr style="background-color:{row_color}">
@@ -543,8 +578,12 @@ table_html += f"""
 </table>
 """
 
-components.html(table_html, height=1000, scrolling=True)
+st_html(table_html, height=1000, scrolling=True)
 st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')}")
+st.warning(
+    "Running in container mode: host-level checks (e.g. kubelet, systemctl) may be unavailable. "
+    "Cluster API access requires kubeconfig or in-cluster credentials."
+)
 
 # --------------------------
 # Explain + Expand
