@@ -180,26 +180,55 @@ def _detect_cni_name() -> str:
 
 def _health_flags(runtime: Dict[str, str]) -> Dict[str, Any]:
     """
-    Derive a few coarse health flags from collected runtime text.
+    Derive health flags from collected runtime text.
 
-    These are intentionally simple and student-friendly.
+    Phase 1 rule:
+    - True  = confirmed healthy
+    - False = confirmed unhealthy
+    - None  = unknown / visibility-limited (VERY IMPORTANT)
     """
+
     pods_text = runtime.get("pods", "")
-    kubelet_text = runtime.get("kubelet", "")
-    containerd_text = runtime.get("containerd", "")
+    kubelet_text = runtime.get("kubelet", "").lower()
+    containerd_text = runtime.get("containerd", "").lower()
 
-    pods_pending = "Pending" in pods_text
-    pods_crashloop = "CrashLoopBackOff" in pods_text
+    pods_pending = "pending" in pods_text.lower()
+    pods_crashloop = "crashloopbackoff" in pods_text.lower()
 
-    kubelet_ok = not any(
-        bad in kubelet_text.lower()
-        for bad in [
-            "inactive",
-            "failed",
-            "could not be found",
-            "not found",
-        ]
-    )
+    # --------------------------
+    # kubelet health
+    # --------------------------
+    if "systemctl not available" in kubelet_text:
+        kubelet_ok = None
+    elif "not installed" in kubelet_text or "not on path" in kubelet_text:
+        kubelet_ok = None
+    elif "inactive" in kubelet_text or "failed" in kubelet_text:
+        kubelet_ok = False
+    elif "active (running)" in kubelet_text or "running" in kubelet_text:
+        kubelet_ok = True
+    else:
+        kubelet_ok = None
+
+    # --------------------------
+    # containerd health
+    # --------------------------
+    if "systemctl not available" in containerd_text:
+        containerd_ok = None
+    elif "not installed" in containerd_text or "not on path" in containerd_text:
+        containerd_ok = None
+    elif "inactive" in containerd_text or "failed" in containerd_text:
+        containerd_ok = False
+    elif "active (running)" in containerd_text or "running" in containerd_text:
+        containerd_ok = True
+    else:
+        containerd_ok = None
+
+    return {
+        "pods_pending": pods_pending,
+        "pods_crashloop": pods_crashloop,
+        "kubelet_ok": kubelet_ok,
+        "containerd_ok": containerd_ok,
+    }
 
     containerd_ok = not any(
         bad in containerd_text.lower()
