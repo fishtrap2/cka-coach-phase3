@@ -136,15 +136,28 @@ def summarize(state: dict) -> dict:
     pending_pods = sum(1 for l in data_lines if " Pending " in f" {l} ")
     crashloop_pods = sum(1 for l in data_lines if "CrashLoopBackOff" in l)
 
-    kubelet_ok = health.get("kubelet_ok", False)
-    containerd_ok = health.get("containerd_ok", False)
+    kubelet_ok = health.get("kubelet_ok", None)
+    containerd_ok = health.get("containerd_ok", None)
 
     cni_name = versions.get("cni", "")
     kernel_ver = versions.get("kernel", "")
-    containerd_ver = versions.get("containerd", "")
     kubelet_ver = versions.get("kubelet", "")
     runc_ver = versions.get("runc", "")
     api_ver = versions.get("api", "")
+
+    if kubelet_ok is True:
+        kubelet_text = "kubelet running"
+    elif kubelet_ok is False:
+        kubelet_text = "kubelet issue"
+    else:
+        kubelet_text = "kubelet status unknown (no host access)"
+
+    if containerd_ok is True:
+        containerd_text = "containerd running"
+    elif containerd_ok is False:
+        containerd_text = "containerd issue"
+    else:
+        containerd_text = "containerd status unknown"
 
     return {
         "L9": ("User workloads", True),
@@ -158,25 +171,9 @@ def summarize(state: dict) -> dict:
         "L6.5": (f"API server / etcd | {api_ver or 'unknown'}", True),
         "L6": ("Operators / custom controllers", True),
         "L5": ("kube-controller-manager", True),
-        
-        if kubelet_ok is True:
-            kubelet_text = "kubelet running"
-        elif kubelet_ok is False:
-            kubelet_text = "kubelet issue"
-        else:
-            kubelet_text = "kubelet status unknown (no host access)"
-
         "L4.1": (kubelet_text, kubelet_ok is True),
         "L4.2": ("kube-proxy / service routing", True),
         "L4.3": (f"CNI config: {cni_name or 'unknown'}", True),
-        
-        if containerd_ok is True:
-            containerd_text = "containerd running"
-        elif containerd_ok is False:
-            containerd_text = "containerd issue"
-        else:
-            containerd_text = "containerd status unknown"
-
         "L3": (containerd_text, containerd_ok is True),
         "L2": (runc_ver or "runc version unknown", True),
         "L1": (f"kernel {kernel_ver or 'unknown'}", True),
