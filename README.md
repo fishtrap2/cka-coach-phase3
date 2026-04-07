@@ -110,7 +110,7 @@ The dashboard shows this architecture so students can understand both:
 ```bash
 git clone <repo-url>
 cd cka-coach
-git checkout v0.4.0
+git checkout v0.4.1
 ---
 python -m venv venv
 source venv/bin/activate
