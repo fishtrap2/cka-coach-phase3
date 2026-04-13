@@ -45,6 +45,7 @@ Phase 2 introduces a **networking and security learning layer** on top of the ex
 
   * Detect and interpret the cluster networking layer
   * Work across *any CNI plugin*
+  * Reconcile multi-source CNI evidence across cluster-level and node-level signals
 
 * **Network diagram (in-cluster perspective)**
 
@@ -56,6 +57,7 @@ Phase 2 introduces a **networking and security learning layer** on top of the ex
   * Explain why traffic is allowed or denied
   * Identify which layer is responsible
   * Provide evidence and confidence
+  * Distinguish confidence from health/status and surface uncertainty explicitly
 
 * **CNI comparison & migration guidance**
 
@@ -66,6 +68,7 @@ Phase 2 introduces a **networking and security learning layer** on top of the ex
 
   * Works generically across clusters
   * Enhances explanations when richer signals are available
+  * Uses a structured L4.3 explain format for current interpretation, evidence, unverified signals, and conclusion
 
 ---
 
@@ -130,4 +133,3 @@ https://github.com/fishtrap2/cka-coach
 
 > Kubernetes networking is the invisible layer students struggle with most.
 > cka-coach makes that layer visible, explainable, and learnable.
-

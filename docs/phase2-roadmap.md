@@ -95,7 +95,10 @@ Make Kubernetes networking **visible, explainable, and intuitive** from inside t
 System should:
 
 * detect CNI plugin where possible
+* reconcile multiple evidence sources when available
+* separate cluster-level evidence from node-level evidence
 * classify confidence (high / medium / low)
+* keep health/status as a separate interpretation layer
 * identify capabilities:
 
   * policy support
@@ -107,7 +110,10 @@ Output shape:
 {
   cni: "...",
   confidence: "...",
-  evidence: [...],
+  evidence: {
+    cluster_level: {...},
+    node_level: {...}
+  },
   capabilities: {...}
 }
 ```
@@ -146,6 +152,15 @@ System responds with:
 3. responsible layer
 4. explanation
 5. uncertainty (if any)
+
+For L4.3 CNI explanations, the explanation should be structured as:
+
+1. Current interpretation
+2. What we know
+3. What supports it at cluster level
+4. What supports it at node level
+5. What is still unverified
+6. Final confidence/health conclusion
 
 ---
 
@@ -249,4 +264,3 @@ Every explanation should answer:
 ## 10. Guiding Principle
 
 > Do not add features unless they improve understanding of how Kubernetes actually works.
-
