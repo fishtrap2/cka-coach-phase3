@@ -72,17 +72,31 @@ def normalize_collected_state(collected_state: dict) -> dict:
     versions = collected_state.get("versions", {})
     summary_versions = collected_state.get("summary", {}).get("versions", {})
     cni_evidence = collected_state.get("evidence", {}).get("cni", {})
+    node_level = cni_evidence.get("node_level", {})
+    cluster_level = cni_evidence.get("cluster_level", {})
 
-    cni_filenames = cni_evidence.get("filenames", [])
+    cni_filenames = node_level.get("filenames", [])
     cni_filename_text = "\n".join(cni_filenames) if cni_filenames else "(none found)"
+    matched_pods = cluster_level.get("matched_pods", [])
+    matched_pod_text = "\n".join(matched_pods) if matched_pods else "(none found)"
     cni_name = summary_versions.get("cni", versions.get("cni", "")) or "unknown"
     cni_detection_text = (
         "[cni detection]\n"
         f"detected cni: {cni_name}\n"
         f"confidence: {cni_evidence.get('confidence', 'low')}\n"
-        f"selected file: {cni_evidence.get('selected_file', '') or '(none)'}\n"
+        f"reconciliation: {cni_evidence.get('reconciliation', 'unknown')}\n\n"
+        "[node-level detection]\n"
+        f"detected cni: {node_level.get('cni', 'unknown')}\n"
+        f"confidence: {node_level.get('confidence', 'low')}\n"
+        f"selected file: {node_level.get('selected_file', '') or '(none)'}\n"
         "files in /etc/cni/net.d:\n"
-        f"{cni_filename_text}"
+        f"{cni_filename_text}\n\n"
+        "[cluster-level detection]\n"
+        f"detected cni: {cluster_level.get('cni', 'unknown')}\n"
+        f"confidence: {cluster_level.get('confidence', 'low')}\n"
+        f"selected pod: {cluster_level.get('selected_pod', '') or '(none)'}\n"
+        "matched kube-system pods:\n"
+        f"{matched_pod_text}"
     )
 
     return {

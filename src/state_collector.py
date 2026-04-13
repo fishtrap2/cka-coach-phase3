@@ -155,6 +155,15 @@ def _parse_cni_listing(listing: str) -> List[str]:
     return [line.strip() for line in listing.splitlines() if line.strip()]
 
 
+def _empty_pod_cni_detection() -> Dict[str, Any]:
+    return {
+        "cni": "unknown",
+        "matched_pods": [],
+        "selected_pod": "",
+        "confidence": "low",
+    }
+
+
 def _select_cni_match(filenames: List[str]) -> Dict[str, str]:
     """
     Choose the best available CNI signal from discovered config filenames.
@@ -222,6 +231,124 @@ def _detect_cni() -> Dict[str, Any]:
     return result
 
 
+def _detect_cni_from_pods(pods_text: str) -> Dict[str, Any]:
+    """
+    Best-effort cluster-level CNI detection from kube-system pod names.
+    """
+    if not pods_text or "kubectl not installed" in pods_text.lower():
+        return _empty_pod_cni_detection()
+
+    kube_system_pods = []
+    for line in pods_text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "kube-system":
+            kube_system_pods.append(parts[1])
+
+    if not kube_system_pods:
+        return _empty_pod_cni_detection()
+
+    recognized_patterns = [
+        ("cilium", "cilium"),
+        ("calico", "calico"),
+        ("flannel", "flannel"),
+        ("weave", "weave"),
+        ("canal", "canal"),
+    ]
+
+    best_match = {
+        "cni": "unknown",
+        "matched_pods": [],
+        "selected_pod": "",
+        "confidence": "low",
+    }
+
+    for pattern, cni_name in recognized_patterns:
+        matched = [pod for pod in kube_system_pods if pattern in pod.lower()]
+        if len(matched) > len(best_match["matched_pods"]):
+            best_match = {
+                "cni": cni_name,
+                "matched_pods": matched,
+                "selected_pod": matched[0],
+                "confidence": "high",
+            }
+
+    return best_match
+
+
+def _source_support_score(detection: Dict[str, Any]) -> int:
+    """
+    Rank evidence sources for simple conflict resolution.
+    """
+    if detection.get("cni", "unknown") == "unknown":
+        return 0
+
+    confidence = detection.get("confidence", "low")
+    if "matched_pods" in detection:
+        return {"high": 20, "medium": 10, "low": 0}.get(confidence, 0) + len(
+            detection.get("matched_pods", [])
+        )
+
+    return {"high": 20, "medium": 10, "low": 0}.get(confidence, 0) + len(
+        detection.get("filenames", [])
+    )
+
+
+def _reconcile_cni_detection(
+    node_level: Dict[str, Any], cluster_level: Dict[str, Any]
+) -> Dict[str, str]:
+    """
+    Combine node-level and cluster-level CNI signals into one summary.
+    """
+    node_cni = node_level.get("cni", "unknown")
+    cluster_cni = cluster_level.get("cni", "unknown")
+
+    node_known = node_cni not in {"", "unknown"}
+    cluster_known = cluster_cni not in {"", "unknown"}
+
+    if node_known and cluster_known and node_cni == cluster_cni:
+        return {
+            "cni": node_cni,
+            "confidence": "high",
+            "reconciliation": "agree",
+        }
+
+    if node_known and not cluster_known:
+        return {
+            "cni": node_cni,
+            "confidence": "medium",
+            "reconciliation": "single_source",
+        }
+
+    if cluster_known and not node_known:
+        return {
+            "cni": cluster_cni,
+            "confidence": "medium",
+            "reconciliation": "single_source",
+        }
+
+    if node_known and cluster_known:
+        node_score = _source_support_score(node_level)
+        cluster_score = _source_support_score(cluster_level)
+
+        if cluster_score > node_score:
+            chosen = cluster_cni
+        else:
+            # Tie-break to node-level to preserve the existing filename-first behavior.
+            chosen = node_cni
+
+        return {
+            "cni": chosen,
+            "confidence": "medium",
+            "reconciliation": "conflict",
+        }
+
+    return {
+        "cni": "unknown",
+        "confidence": "low",
+        "reconciliation": "unknown",
+    }
+
+
 def _detect_cni_name() -> str:
     """
     Backward-compatible string-only CNI detector.
@@ -229,13 +356,21 @@ def _detect_cni_name() -> str:
     return _detect_cni().get("cni", "unknown")
 
 
-def _health_flags(runtime: Dict[str, str], versions: Dict[str, str]) -> Dict[str, Any]:
+def _health_flags(
+    runtime: Dict[str, str],
+    versions: Dict[str, str],
+    evidence: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     """
     Derive health flags from collected runtime + version text.
 
+    Most layers use:
     True  = confirmed healthy
     False = confirmed unhealthy
     None  = unknown / visibility-limited
+
+    CNI currently uses:
+    healthy / degraded / unknown
     """
 
     pods_text = runtime.get("pods", "").lower()
@@ -248,6 +383,8 @@ def _health_flags(runtime: Dict[str, str], versions: Dict[str, str]) -> Dict[str
     runc_text = versions.get("runc", "").lower()
     kernel_text = versions.get("kernel", "").lower()
     cni_text = versions.get("cni", "").lower()
+    cni_evidence = (evidence or {}).get("cni", {})
+    cni_reconciliation = cni_evidence.get("reconciliation", "unknown")
 
     pods_pending = "pending" in pods_text
     pods_crashloop = "crashloopbackoff" in pods_text
@@ -326,10 +463,12 @@ def _health_flags(runtime: Dict[str, str], versions: Dict[str, str]) -> Dict[str
     # cni
     if cni_text in {"", "unknown"}:
         cni_ok = "unknown"
-    elif "." in cni_text:
+    elif cni_reconciliation == "agree":
+        cni_ok = "healthy"
+    elif cni_reconciliation in {"single_source", "conflict"}:
         cni_ok = "degraded"
     else:
-        cni_ok = "healthy"
+        cni_ok = "degraded"
 
     return {
         "pods_pending": pods_pending,
@@ -406,7 +545,12 @@ def collect_state() -> Dict[str, Any]:
     # --------------------------
     # These fields are slower-changing metadata that help place the cluster
     # in context and populate table version columns.
-    cni_detection = _detect_cni()
+    node_cni_detection = _detect_cni()
+    cluster_cni_detection = _detect_cni_from_pods(runtime.get("pods", ""))
+    combined_cni_detection = _reconcile_cni_detection(
+        node_cni_detection,
+        cluster_cni_detection,
+    )
 
     versions = {
         "api": _safe_kubectl_version_short(),
@@ -415,7 +559,7 @@ def collect_state() -> Dict[str, Any]:
         "containerd": _safe_containerd_version(),
         "kubelet": _safe_kubelet_version(),
         "runc": _safe_runc_version(),
-        "cni": cni_detection.get("cni", "unknown"),
+        "cni": combined_cni_detection.get("cni", "unknown"),
         "python_platform": platform.platform(),
     }
 
@@ -426,14 +570,20 @@ def collect_state() -> Dict[str, Any]:
     }
 
     evidence = {
-        "cni": cni_detection,
+        "cni": {
+            "cni": combined_cni_detection.get("cni", "unknown"),
+            "confidence": combined_cni_detection.get("confidence", "low"),
+            "reconciliation": combined_cni_detection.get("reconciliation", "unknown"),
+            "node_level": node_cni_detection,
+            "cluster_level": cluster_cni_detection,
+        },
     }
 
     # --------------------------
     # Derived health
     # --------------------------
-    # These are simple booleans inferred from the collected runtime data.
-    health = _health_flags(runtime, versions)
+    # These are simple derived health/status flags inferred from the collected data.
+    health = _health_flags(runtime, versions, evidence)
 
     return {
         "runtime": runtime,

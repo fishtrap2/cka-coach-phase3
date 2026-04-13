@@ -58,11 +58,33 @@ class TestCniDetection(unittest.TestCase):
         self.assertEqual(result["selected_file"], "10-flannel.conflist")
         self.assertEqual(result["confidence"], "high")
 
-    def test_collect_state_exposes_summary_and_evidence_for_recognized_cni(self):
-        cni_detection = {
+    def test_detect_cni_from_pods_recognizes_kube_system_plugin_pods(self):
+        pods_text = (
+            "NAMESPACE NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES\n"
+            "kube-system cilium-abcde 1/1 Running 0 1h 10.0.0.1 node1 <none> <none>\n"
+            "kube-system cilium-operator-12345 1/1 Running 0 1h 10.0.0.2 node1 <none> <none>\n"
+        )
+        result = state_collector._detect_cni_from_pods(pods_text)
+
+        self.assertEqual(result["cni"], "cilium")
+        self.assertEqual(result["selected_pod"], "cilium-abcde")
+        self.assertEqual(result["confidence"], "high")
+        self.assertEqual(
+            result["matched_pods"],
+            ["cilium-abcde", "cilium-operator-12345"],
+        )
+
+    def test_collect_state_reconciles_agreeing_sources_as_healthy(self):
+        node_detection = {
             "cni": "calico",
             "filenames": ["10-calico.conflist"],
             "selected_file": "10-calico.conflist",
+            "confidence": "high",
+        }
+        cluster_detection = {
+            "cni": "calico",
+            "matched_pods": ["calico-node-abcde", "calico-kube-controllers-12345"],
+            "selected_pod": "calico-node-abcde",
             "confidence": "high",
         }
         with patch.object(state_collector, "_safe_kubectl", return_value=""), patch.object(
@@ -84,21 +106,32 @@ class TestCniDetection(unittest.TestCase):
         ), patch.object(
             state_collector, "_safe_runc_version", return_value=""
         ), patch.object(
-            state_collector, "_detect_cni", return_value=cni_detection
+            state_collector, "_detect_cni", return_value=node_detection
+        ), patch.object(
+            state_collector, "_detect_cni_from_pods", return_value=cluster_detection
         ):
             state = state_collector.collect_state()
 
         self.assertEqual(state["summary"]["versions"]["cni"], "calico")
-        self.assertEqual(state["evidence"]["cni"], cni_detection)
+        self.assertEqual(state["evidence"]["cni"]["node_level"], node_detection)
+        self.assertEqual(state["evidence"]["cni"]["cluster_level"], cluster_detection)
+        self.assertEqual(state["evidence"]["cni"]["confidence"], "high")
+        self.assertEqual(state["evidence"]["cni"]["reconciliation"], "agree")
         self.assertEqual(state["versions"]["cni"], "calico")
         self.assertEqual(state["health"]["cni_ok"], "healthy")
 
-    def test_collect_state_marks_generic_cni_as_degraded(self):
-        cni_detection = {
+    def test_collect_state_marks_conflicting_sources_as_degraded(self):
+        node_detection = {
             "cni": "10-containerd-net.conflist",
             "filenames": ["10-containerd-net.conflist"],
             "selected_file": "10-containerd-net.conflist",
             "confidence": "medium",
+        }
+        cluster_detection = {
+            "cni": "cilium",
+            "matched_pods": ["cilium-abcde", "cilium-operator-12345"],
+            "selected_pod": "cilium-abcde",
+            "confidence": "high",
         }
         with patch.object(state_collector, "_safe_kubectl", return_value=""), patch.object(
             state_collector, "_safe_systemctl", return_value=""
@@ -119,12 +152,15 @@ class TestCniDetection(unittest.TestCase):
         ), patch.object(
             state_collector, "_safe_runc_version", return_value=""
         ), patch.object(
-            state_collector, "_detect_cni", return_value=cni_detection
+            state_collector, "_detect_cni", return_value=node_detection
+        ), patch.object(
+            state_collector, "_detect_cni_from_pods", return_value=cluster_detection
         ):
             state = state_collector.collect_state()
 
-        self.assertEqual(state["summary"]["versions"]["cni"], "10-containerd-net.conflist")
+        self.assertEqual(state["summary"]["versions"]["cni"], "cilium")
         self.assertEqual(state["evidence"]["cni"]["confidence"], "medium")
+        self.assertEqual(state["evidence"]["cni"]["reconciliation"], "conflict")
         self.assertEqual(state["health"]["cni_ok"], "degraded")
 
 

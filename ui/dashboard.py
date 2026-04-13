@@ -215,19 +215,36 @@ def format_cni_detection_evidence(state: dict) -> str:
     summary_versions = state.get("summary", {}).get("versions", {})
     detection = state.get("evidence", {}).get("cni", {})
 
-    filenames = detection.get("filenames", [])
+    node_level = detection.get("node_level", {})
+    cluster_level = detection.get("cluster_level", {})
+
+    filenames = node_level.get("filenames", [])
     filename_text = "\n".join(filenames) if filenames else "(none found)"
-    selected_file = detection.get("selected_file", "") or "(none)"
+    selected_file = node_level.get("selected_file", "") or "(none)"
+    matched_pods = cluster_level.get("matched_pods", [])
+    matched_pod_text = "\n".join(matched_pods) if matched_pods else "(none found)"
+    selected_pod = cluster_level.get("selected_pod", "") or "(none)"
     confidence = detection.get("confidence", "low")
+    reconciliation = detection.get("reconciliation", "unknown")
     cni_name = summary_versions.get("cni", versions.get("cni", "")) or "unknown"
 
     return (
         "[cni detection]\n"
         f"detected cni: {cni_name}\n"
         f"confidence: {confidence}\n"
+        f"reconciliation: {reconciliation}\n\n"
+        "[node-level detection]\n"
+        f"detected cni: {node_level.get('cni', 'unknown')}\n"
+        f"confidence: {node_level.get('confidence', 'low')}\n"
         f"selected file: {selected_file}\n"
         "files in /etc/cni/net.d:\n"
         f"{filename_text}\n\n"
+        "[cluster-level detection]\n"
+        f"detected cni: {cluster_level.get('cni', 'unknown')}\n"
+        f"confidence: {cluster_level.get('confidence', 'low')}\n"
+        f"selected pod: {selected_pod}\n"
+        "matched kube-system pods:\n"
+        f"{matched_pod_text}\n\n"
         "[node network evidence]\n"
         f"{runtime.get('network', '')}\n\n{runtime.get('routes', '')}"
     ).strip()
