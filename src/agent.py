@@ -435,6 +435,9 @@ Use precise language:
 - distinguish inferred from verified
 - do not overclaim when evidence is partial or conflicting
 - do not treat pod IP assignment alone as primary CNI identification evidence
+- when primary_layer_context contains structured CNI evidence, treat it as the authoritative basis for the explanation ahead of the generic compact context
+- do not warn that generic pod listings are truncated if primary_layer_context already contains sufficient cluster-level CNI evidence
+- only warn about incomplete, weak, or conflicting evidence when the primary_layer_context itself shows that limitation
 """
 
         system_prompt = f"""
