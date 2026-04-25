@@ -6,6 +6,7 @@ from schemas import CoachResponse, ELSResult
 from els import load_els_model
 from els_model import ELS_LAYERS
 from els_mapper import map_to_els
+from command_boundaries import normalize_boundary_commands, format_boundary_commands_text
 
 # OpenAI client used for the explanatory / teaching layer.
 # Important: the model is no longer the owner of the ELS logic.
@@ -73,6 +74,8 @@ def normalize_collected_state(collected_state: dict) -> dict:
     summary_versions = collected_state.get("summary", {}).get("versions", {})
     health = collected_state.get("health", {})
     cni_evidence = collected_state.get("evidence", {}).get("cni", {})
+    kubelet_transitional_note = health.get("kubelet_transitional_note", "")
+    containerd_transitional_note = health.get("containerd_transitional_note", "")
     node_level = cni_evidence.get("node_level", {})
     cluster_level = cni_evidence.get("cluster_level", {})
 
@@ -80,14 +83,55 @@ def normalize_collected_state(collected_state: dict) -> dict:
     cni_filename_text = "\n".join(cni_filenames) if cni_filenames else "(none found)"
     matched_pods = cluster_level.get("matched_pods", [])
     matched_pod_text = "\n".join(matched_pods) if matched_pods else "(none found)"
+    matched_daemonsets = cluster_level.get("matched_daemonsets", [])
+    matched_daemonset_text = "\n".join(matched_daemonsets) if matched_daemonsets else "(none found)"
     cni_name = summary_versions.get("cni", versions.get("cni", "")) or "unknown"
     cni_health = health.get("cni_ok", "unknown")
+    capabilities = cni_evidence.get("capabilities", {})
+    cluster_footprint = cni_evidence.get("cluster_footprint", {})
+    cluster_platform_signals = cni_evidence.get("cluster_platform_signals", {})
+    platform_signals = cluster_platform_signals.get("signals", [])
+    daemonset_text = json.dumps(cluster_footprint.get("daemonsets", []), indent=2)
+    calico_runtime = cni_evidence.get("calico_runtime", {})
+    classification = cni_evidence.get("classification", {})
+    event_history = cni_evidence.get("event_history", {})
+    provenance = cni_evidence.get("provenance", {})
+    policy_presence = cni_evidence.get("policy_presence", {})
+    version = cni_evidence.get("version", {})
+    config_spec_version = cni_evidence.get("config_spec_version", {})
+    config_content = cni_evidence.get("config_content", "")
+    migration_note = cni_evidence.get("migration_note", "unknown")
+    policy_label = {
+        "present": "present",
+        "absent": "none detected",
+        "unknown": "unknown",
+    }.get(policy_presence.get("status", "unknown"), policy_presence.get("status", "unknown"))
 
     missing_or_unverified = []
     if cluster_level.get("cni", "unknown") == "unknown":
-        missing_or_unverified.append("No recognized kube-system CNI pod names were detected.")
+        missing_or_unverified.append("Current cluster footprint does not confirm an active CNI from kube-system pod names.")
+    elif not matched_pods:
+        missing_or_unverified.append("Cluster-level pod evidence is limited, so the full CNI component footprint is not fully visible.")
     if node_level.get("cni", "unknown") == "unknown":
         missing_or_unverified.append("No recognized node-level CNI config filename was detected.")
+    elif not config_content.strip():
+        missing_or_unverified.append("Node-level CNI config content was not directly collected from the selected file.")
+    if (
+        cluster_footprint.get("daemonset_count", 0) == 0
+        and not platform_signals
+        and "not directly observed" in cluster_footprint.get("summary", "")
+    ):
+        missing_or_unverified.append("CNI DaemonSet presence or readiness was not directly collected from cluster evidence.")
+    if version.get("value", "unknown") == "unknown":
+        missing_or_unverified.append("The CNI plugin version is not directly evidenced from a single trustworthy image tag.")
+    if cni_name == "calico" and calico_runtime.get("status") == "established":
+        missing_or_unverified.append(
+            "Direct Calico runtime evidence was collected from one calico-node pod, but it does not by itself prove identical BGP or health state on every node."
+        )
+    else:
+        missing_or_unverified.append(
+            "CNI-specific health output from the plugin itself is still not directly verified from the provided context."
+        )
     if cni_evidence.get("reconciliation", "unknown") == "conflict":
         missing_or_unverified.append(
             "Cluster-level and node-level signals conflict, so the result is a lower-certainty inference rather than a well-supported conclusion."
@@ -108,17 +152,83 @@ def normalize_collected_state(collected_state: dict) -> dict:
         f"confidence: {cni_evidence.get('confidence', 'low')}\n"
         f"health/status meaning: {cni_health}\n\n"
         "[cluster-level evidence]\n"
+        "primary cluster checks:\n"
+        "kubectl get pods -n kube-system\n"
+        "kubectl get ds -n kube-system\n"
         f"detected cni: {cluster_level.get('cni', 'unknown')}\n"
         f"confidence: {cluster_level.get('confidence', 'low')}\n"
         f"selected pod: {cluster_level.get('selected_pod', '') or '(none)'}\n"
         "matched kube-system pods:\n"
-        f"{matched_pod_text}\n\n"
+        f"{matched_pod_text}\n"
+        "matched daemonsets:\n"
+        f"{matched_daemonset_text}\n"
+        "current matching daemonsets:\n"
+        f"{daemonset_text}\n\n"
+        "[platform signals]\n"
+        f"{json.dumps(platform_signals, indent=2)}\n\n"
         "[node-level evidence]\n"
+        "primary node checks:\n"
+        "ls /etc/cni/net.d/\n"
+        "cat /etc/cni/net.d/<config>\n"
+        "ip route\n"
         f"detected cni: {node_level.get('cni', 'unknown')}\n"
         f"confidence: {node_level.get('confidence', 'low')}\n"
         f"selected file: {node_level.get('selected_file', '') or '(none)'}\n"
         "files in /etc/cni/net.d:\n"
         f"{cni_filename_text}\n\n"
+        "[capability inference]\n"
+        f"summary: {capabilities.get('summary', 'unknown')}\n"
+        f"network policy: {capabilities.get('network_policy', 'unknown')}\n"
+        f"policy model: {capabilities.get('policy_model', 'unknown')}\n"
+        f"policy support: {capabilities.get('policy_support', 'unknown')}\n"
+        f"observability: {capabilities.get('observability', 'unknown')}\n"
+        f"inference basis: {capabilities.get('inference_basis', 'unknown')}\n\n"
+        "[cluster footprint]\n"
+        f"summary: {cluster_footprint.get('summary', 'cluster footprint not directly observed')}\n"
+        f"operator present: {cluster_footprint.get('operator_present', False)}\n"
+        f"daemonset count: {cluster_footprint.get('daemonset_count', 0)}\n"
+        f"daemonsets: {json.dumps(cluster_footprint.get('daemonsets', []), indent=2)}\n\n"
+        "[normalized classification]\n"
+        f"state: {classification.get('state', 'unknown')}\n"
+        f"reason: {classification.get('reason', 'unknown')}\n"
+        f"notes: {json.dumps(classification.get('notes', []), indent=2)}\n"
+        f"previous detected cni: {classification.get('previous_detected_cni', 'unknown')}\n\n"
+        "[provenance]\n"
+        f"available: {provenance.get('available', False)}\n"
+        f"current detected cni: {provenance.get('current_detected_cni', 'unknown')}\n"
+        f"previous detected cni: {provenance.get('previous_detected_cni', 'unknown')}\n"
+        f"last cleaned at: {provenance.get('last_cleaned_at', '') or '(unknown)'}\n"
+        f"cleaned by: {provenance.get('cleaned_by', '') or '(unknown)'}\n"
+        f"last install observed at: {provenance.get('last_install_observed_at', '') or '(unknown)'}\n"
+        f"evidence basis: {provenance.get('evidence_basis', 'unknown')}\n\n"
+        "[calico runtime evidence]\n"
+        f"summary: {calico_runtime.get('summary', 'not applicable for current CNI')}\n"
+        f"status: {calico_runtime.get('status', 'unknown')}\n"
+        f"pod: {calico_runtime.get('pod', '') or '(none)'}\n"
+        f"bird ready: {calico_runtime.get('bird_ready', False)}\n"
+        f"established peers: {calico_runtime.get('established_peers', 0)}\n"
+        f"protocol lines: {json.dumps(calico_runtime.get('protocol_lines', []), indent=2)}\n\n"
+        "[version evidence]\n"
+        f"observed version: {version.get('value', 'unknown')}\n"
+        f"source: {version.get('source', 'unknown')}\n"
+        f"pod: {version.get('pod', '') or '(none)'}\n"
+        f"image: {version.get('image', '') or '(none)'}\n\n"
+        "[cni config spec evidence]\n"
+        f"observed cniVersion: {config_spec_version.get('value', 'unknown')}\n"
+        f"source: {config_spec_version.get('source', 'unknown')}\n"
+        f"file: {config_spec_version.get('file', '') or '(none)'}\n"
+        "selected config content:\n"
+        f"{config_content or '(none)'}\n\n"
+        "[historical events / recent transitions]\n"
+        f"summary: {event_history.get('summary', 'no relevant CNI event history collected')}\n"
+        f"relevant lines: {json.dumps(event_history.get('relevant_lines', []), indent=2)}\n"
+        "Use this section as historical transition context, not as the primary basis for current CNI identification.\n\n"
+        "[policy presence summary]\n"
+        f"status: {policy_label}\n"
+        f"count: {policy_presence.get('count', 0)}\n"
+        f"namespaces: {', '.join(policy_presence.get('namespaces', [])) or '(none)'}\n\n"
+        "[migration or reconciliation note]\n"
+        f"{migration_note}\n\n"
         "[missing or unverified evidence]\n"
         f"{missing_text}\n\n"
         "[confidence and health/status meaning]\n"
@@ -130,8 +240,19 @@ def normalize_collected_state(collected_state: dict) -> dict:
         "pods": runtime.get("pods", ""),
         "events": runtime.get("events", ""),
         "nodes": runtime.get("nodes", ""),
-        "kubelet": runtime.get("kubelet", ""),
-        "containerd": runtime.get("containerd", ""),
+        "network_policies": runtime.get("network_policies", ""),
+        "kubelet": runtime.get("kubelet", "")
+        + (
+            "\n\n[kubelet health note]\n" + kubelet_transitional_note
+            if kubelet_transitional_note
+            else ""
+        ),
+        "containerd": runtime.get("containerd", "")
+        + (
+            "\n\n[containerd health note]\n" + containerd_transitional_note
+            if containerd_transitional_note
+            else ""
+        ),
         "containers": runtime.get("containers", ""),
         "processes": runtime.get("processes", ""),
         "network": runtime.get("network", ""),
@@ -185,7 +306,7 @@ def choose_primary_els_layer(question: str, normalized_state: dict) -> tuple[str
 
     # Questions about the apiserver / etcd / REST API go to the API layer.
     if "api server" in q or "apiserver" in q or "etcd" in q or "rest api" in q:
-        return "L6.5 api_layer", "6.5"
+        return "L4.5 api_layer", "4.5"
 
     # Scheduler / controllers / control plane questions generally map to controllers.
     if "scheduler" in q or "controller" in q or "control plane" in q:
@@ -214,6 +335,157 @@ def choose_primary_els_layer(question: str, normalized_state: dict) -> tuple[str
         return "L8 application_pods", "8"
 
     return "L7 kubernetes_objects", "7"
+
+
+def _first_meaningful_line(text: str) -> str:
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped and "No strong evidence" not in stripped:
+            return stripped
+    return "Current evidence is limited, so start from the nearest inspection boundary."
+
+
+def _build_cni_guided_plan(collected_state: dict) -> list[dict]:
+    runtime = collected_state.get("runtime", {})
+    evidence = collected_state.get("evidence", {}).get("cni", {})
+    summary_versions = collected_state.get("summary", {}).get("versions", {})
+    cni_name = summary_versions.get("cni", collected_state.get("versions", {}).get("cni", "unknown"))
+    classification = evidence.get("classification", {})
+    cluster_level = evidence.get("cluster_level", {})
+    node_level = evidence.get("node_level", {})
+    cluster_footprint = evidence.get("cluster_footprint", {})
+    calico_runtime = evidence.get("calico_runtime", {})
+    event_history = evidence.get("event_history", {})
+    selected_file = node_level.get("selected_file", "") or "<config>"
+    matched_pods = cluster_level.get("matched_pods", [])
+    daemonset_count = cluster_footprint.get("daemonset_count", 0)
+    cluster_commands = [
+        "kubectl get pods -n kube-system",
+        "kubectl get ds -n kube-system",
+    ]
+    node_commands = [
+        "ls /etc/cni/net.d/",
+        f"cat /etc/cni/net.d/{selected_file}",
+        "ip route",
+    ]
+    if cni_name == "calico" and calico_runtime.get("pod"):
+        cluster_commands.append(
+            f"kubectl -n kube-system exec {calico_runtime.get('pod')} -- birdcl show protocols"
+        )
+
+    plan = [
+        {
+            "title": "Validate the current cluster CNI footprint",
+            "why": (
+                f"The current classification is {classification.get('state', 'unknown')}, and the strongest current-state check is whether "
+                f"{cni_name} pods and daemonsets are still present right now."
+            ),
+            "commands": cluster_commands,
+            "interpretation": (
+                f"If kube-system still shows the expected {cni_name} footprint and daemonsets are Ready, continue to node config and datapath checks. "
+                "If the footprint is absent or mismatched, treat the state as stale or transitional rather than assuming the old plugin is still active."
+            ),
+        },
+        {
+            "title": "Verify node-level config provenance",
+            "why": (
+                f"Node-level evidence currently points to {node_level.get('cni', 'unknown')} via {selected_file}, so confirm whether the node config matches the live cluster footprint."
+            ),
+            "commands": node_commands,
+            "interpretation": (
+                "If the config file names the same plugin as the current cluster footprint, the node and cluster evidence agree. "
+                "If the file still names a different plugin, this is stale_node_config or mixed_or_transitional rather than a generic CNI state."
+            ),
+        },
+    ]
+
+    if cni_name == "calico" and calico_runtime.get("status") != "not_applicable":
+        plan.append(
+            {
+                "title": "Confirm the live Calico datapath before trusting old events",
+                "why": (
+                    "Direct runtime evidence from calico-node is more trustworthy for current health than historical readiness or restart events."
+                ),
+                "commands": [f"kubectl -n kube-system exec {calico_runtime.get('pod', '<calico-node-pod>')} -- birdcl show protocols"],
+                "interpretation": (
+                    "If BGP peers are Established, the datapath is live enough to treat old event warnings as historical context. "
+                    "If BIRD is not ready or peers are missing, the active networking issue is still in the CNI datapath."
+                ),
+            }
+        )
+
+    if event_history.get("relevant_lines"):
+        plan.append(
+            {
+                "title": "Correlate current state with recent transitions",
+                "why": "Recent events can explain why the cluster entered a stale or transitional state, but they should not override stronger current-state evidence.",
+                "commands": ["kubectl get events -A --sort-by=.lastTimestamp"],
+                "interpretation": (
+                    "Use events to understand timing and restarts. If events mention the old plugin but current pods, daemonsets, and config disagree, trust the current-state checks first."
+                ),
+            }
+        )
+
+    return plan[:4]
+
+
+def _build_generic_guided_plan(layer_num: str, layer_name: str, mapped_context: str, debug_cmds: list[str]) -> list[dict]:
+    grouped = normalize_boundary_commands(debug_cmds)
+    evidence_line = _first_meaningful_line(mapped_context)
+    plan: list[dict] = []
+
+    titles = {
+        "8": "Validate current pod state",
+        "7": "Inspect the desired-state object first",
+        "4.5": "Confirm API/control-plane reachability",
+        "6": "Inspect the operator control loop",
+        "5": "Check reconciliation behavior closest to the symptom",
+        "4": "Inspect the active node boundary first",
+        "3": "Validate the container runtime service",
+        "2": "Check the low-level OCI executor path",
+        "1": "Inspect the kernel-facing substrate",
+        "0": "Validate the virtual infrastructure surface",
+        "9": "Inspect the user workload directly",
+    }
+
+    why = f"The strongest current evidence for {layer_name} is: {evidence_line}"
+    if grouped.get("Cluster"):
+        plan.append(
+            {
+                "title": titles.get(layer_num, "Start at the nearest cluster-facing boundary"),
+                "why": why,
+                "commands": grouped["Cluster"],
+                "interpretation": (
+                    "If the cluster-facing view matches the expected objects or status, move one layer lower. "
+                    "If it already looks wrong here, the issue is still in this layer's control surface."
+                ),
+            }
+        )
+    if grouped.get("Node"):
+        plan.append(
+            {
+                "title": "Validate the node/runtime boundary",
+                "why": f"{layer_name} also depends on local runtime evidence, so check the node-facing surface next.",
+                "commands": grouped["Node"],
+                "interpretation": (
+                    "If node-facing state is healthy and consistent, the problem likely sits higher in the stack. "
+                    "If node-facing state is unhealthy, stay in this layer before moving outward."
+                ),
+            }
+        )
+    if layer_num not in {"5", "7"}:
+        plan.append(
+            {
+                "title": "Correlate with recent cluster events",
+                "why": "Events help explain recent restarts, reconciliations, or transitions that led to the current state.",
+                "commands": ["kubectl get events -A --sort-by=.lastTimestamp"],
+                "interpretation": (
+                    "Use events to explain timing and sequence. Treat them as supporting context rather than proof of current health if stronger current-state evidence exists."
+                ),
+            }
+        )
+
+    return plan[:4]
 
 
 def build_deterministic_els_result(question: str, collected_state: dict) -> ELSResult:
@@ -251,6 +523,7 @@ def build_deterministic_els_result(question: str, collected_state: dict) -> ELSR
 
     layer_name = layer_meta.get("name", primary_layer_key)
     debug_cmds = layer_meta.get("debug", [])
+    mapped_context = mapped.get(primary_layer_key, "")
 
     explanation = (
         f"Based on the current question and collected context, the most relevant ELS layer is "
@@ -259,10 +532,17 @@ def build_deterministic_els_result(question: str, collected_state: dict) -> ELSR
         f"and the structured cluster evidence."
     )
 
-    # Prefer schema-derived debug commands when available.
-    next_steps = debug_cmds[:] if debug_cmds else [
-        "Inspect the most relevant cluster object and work down the stack."
-    ]
+    if layer_num == "4":
+        guided_plan = _build_cni_guided_plan(collected_state)
+    else:
+        guided_plan = _build_generic_guided_plan(
+            str(layer_num),
+            layer_name,
+            mapped_context,
+            debug_cmds,
+        )
+
+    next_steps = [step.get("title", "") for step in guided_plan]
 
     return {
         "layer": primary_layer_key,
@@ -270,6 +550,7 @@ def build_deterministic_els_result(question: str, collected_state: dict) -> ELSR
         "layer_name": layer_name,
         "explanation": explanation,
         "next_steps": next_steps,
+        "guided_investigation_plan": guided_plan,
         "mapped_context": mapped,
     }
 
@@ -313,6 +594,7 @@ def normalize_response(raw: str) -> CoachResponse:
                 "layer_name": "",
                 "explanation": "Model did not return valid JSON.",
                 "next_steps": [],
+                "guided_investigation_plan": [],
                 "mapped_context": {},
             },
             "learning": {
@@ -435,7 +717,18 @@ Use precise language:
 - prefer phrasing like high-confidence inference, well-supported conclusion, and supported by direct cluster-level evidence over wording that overstates certainty
 - do not overclaim when evidence is partial or conflicting
 - do not treat pod IP assignment alone as primary CNI identification evidence
+- do not imply observed policy enforcement when only platform capability or NetworkPolicy object presence is shown
 - when primary_layer_context contains structured CNI evidence, treat it as the authoritative basis for the explanation ahead of the generic compact context
+- use the combined confidence from primary_layer_context exactly as written for the overall conclusion
+- if combined confidence is medium, do not describe the overall interpretation as high-confidence
+- if cluster-level evidence is strong but combined confidence is only medium, describe that as direct cluster-level support with a medium-confidence overall conclusion
+- if health/status meaning is degraded, describe the CNI as present but partially healthy or degraded; do not call it healthy
+- keep health/status meaning aligned with primary_layer_context; if it says unknown, describe visibility as limited rather than healthy or degraded
+- only describe the CNI as healthy when primary_layer_context explicitly says health/status meaning: healthy
+- use the normalized classification and provenance sections when present to explain whether the state looks healthy, mixed, stale, or transitional
+- prioritize current cluster evidence (pods, daemonsets, direct runtime checks) and current node evidence (config files, config content, routes) over historical event mentions
+- if current cluster footprint is absent but node config explicitly says Calico or Cilium, say that directly and use stale_node_config or mixed_or_transitional wording rather than generic_cni
+- treat any historical events / recent transitions section as supporting context about recent changes, not as the primary basis for current CNI identification
 - do not warn that generic pod listings are truncated if primary_layer_context already contains sufficient cluster-level CNI evidence
 - only warn about incomplete, weak, or conflicting evidence when the primary_layer_context itself shows that limitation
 """
@@ -472,7 +765,8 @@ Return JSON with exactly this shape:
     "layer": "primary ELS layer",
     "layer_number": "ELS number",
     "explanation": "ELS-based reasoning",
-    "next_steps": ["step 1", "step 2"]
+    "next_steps": ["step 1", "step 2"],
+    "guided_investigation_plan": []
   }},
   "learning": {{
     "kubernetes": "what this teaches about Kubernetes",
@@ -514,6 +808,7 @@ Return JSON with exactly this shape:
                 "layer_name": "",
                 "explanation": "",
                 "next_steps": [],
+                "guided_investigation_plan": [],
                 "mapped_context": {},
             },
             "learning": {

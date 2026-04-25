@@ -1,3 +1,4 @@
+import json
 import typer
 from rich import print
 
@@ -25,7 +26,7 @@ def layers():
 
     Output example:
       4 - node_agents_and_networking
-      6.5 - api_layer
+      4.5 - api_layer
     """
     for layer_id, layer in ELS_LAYERS.items():
         print(f"[bold]{layer_id}[/bold] - {layer['name']}")
@@ -68,6 +69,11 @@ def ask(
         "--allow-web",
         help="Allow the agent/LLM to use external web information when needed.",
     ),
+    allow_host_evidence: bool = typer.Option(
+        False,
+        "--allow-host-evidence",
+        help="Allow cka-coach to use explicitly exposed host-mounted or user-provided evidence paths.",
+    ),
 ):
     """
     Ask cka-coach a question from the CLI.
@@ -86,7 +92,7 @@ def ask(
     # Use the same structured collection path as the dashboard.
     # This is important because we want one trustworthy source of evidence
     # for both CLI and UI.
-    state = collect_state()
+    state = collect_state(allow_host_evidence=allow_host_evidence)
 
     # Pass through the new switches.
     # NOTE: ask_llm() must be updated to accept these keyword args.
@@ -124,14 +130,24 @@ def ask(
     # except for Next Steps and Warnings
     # -------------------------
     if concise:
-        next_steps = (
-            result.get("next_steps")
-            or result.get("els", {}).get("next_steps", [])
-        )
-        if next_steps:
-            print("\n[bold]Next Steps[/bold]")
-            for step in next_steps:
-                print(f"- {step}")
+        guided_plan = result.get("els", {}).get("guided_investigation_plan", [])
+        if guided_plan:
+            print("\n[bold]Next Steps (Guided Investigation Plan)[/bold]")
+            for idx, step in enumerate(guided_plan, start=1):
+                print(f"\n[bold]Step {idx}: {step.get('title', '')}[/bold]")
+                print(f"Why: {step.get('why', '')}")
+                for command in step.get("commands", []):
+                    print(f"  {command}")
+                print(f"Interpretation: {step.get('interpretation', '')}")
+        else:
+            next_steps = (
+                result.get("next_steps")
+                or result.get("els", {}).get("next_steps", [])
+            )
+            if next_steps:
+                print("\n[bold]Next Steps[/bold]")
+                for step in next_steps:
+                    print(f"- {step}")
 
         warnings = result.get("warnings", [])
         if warnings:
@@ -155,11 +171,21 @@ def ask(
     #print(f"Layer Name: {els.get('layer_name', '')}")
     #print(els.get("explanation", ""))
 
-    next_steps = els.get("next_steps", [])
-    if next_steps:
-        print("\n[bold]Next Steps[/bold]")
-        for step in next_steps:
-            print(f"- {step}")
+    guided_plan = els.get("guided_investigation_plan", [])
+    if guided_plan:
+        print("\n[bold]Next Steps (Guided Investigation Plan)[/bold]")
+        for idx, step in enumerate(guided_plan, start=1):
+            print(f"\n[bold]Step {idx}: {step.get('title', '')}[/bold]")
+            print(f"Why: {step.get('why', '')}")
+            for command in step.get("commands", []):
+                print(f"  {command}")
+            print(f"Interpretation: {step.get('interpretation', '')}")
+    else:
+        next_steps = els.get("next_steps", [])
+        if next_steps:
+            print("\n[bold]Next Steps[/bold]")
+            for step in next_steps:
+                print(f"- {step}")
 
     # ----------
     # Learning
@@ -207,6 +233,29 @@ def ask(
     #        print(f"\nStep {step.get('step', '?')}: {step.get('action', '')}")
     #        print(f"  Why: {step.get('why', '')}")
     #        print(f"  Outcome: {step.get('outcome', '')}")
+
+
+@app.command("dump-state")
+def dump_state(
+    allow_host_evidence: bool = typer.Option(
+        False,
+        "--allow-host-evidence",
+        help="Allow cka-coach to use explicitly exposed host-mounted or user-provided evidence paths.",
+    ),
+    include_logs: bool = typer.Option(
+        False,
+        "--include-logs",
+        help="Include recent kubelet/containerd journal logs in the dump when available.",
+    ),
+):
+    """
+    Dump the full structured collected state for debugging and lab validation.
+    """
+    state = collect_state(
+        allow_host_evidence=allow_host_evidence,
+        include_logs=include_logs,
+    )
+    print(json.dumps(state, indent=2))
 
 
 if __name__ == "__main__":
