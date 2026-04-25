@@ -1064,11 +1064,13 @@ st.html(
     """
 )
 st.warning(
-    "Running in container mode: host-level checks (e.g. kubelet, systemctl) may be unavailable. "
-    "Cluster API access requires kubeconfig or in-cluster credentials."
+    "Running in container mode narrows which boundaries cka-coach can inspect directly. "
+    "Host-level checks such as kubelet, systemctl, local config files, and other node/runtime evidence may be unavailable from inside the container boundary. "
+    "At this stage, it is expected that some lower ELS layers will become visibility-limited or health-unknown unless the right host or in-cluster evidence paths are explicitly provided."
 )
 st.warning(
-    "KEY: 🟢 = healthy; 🔴 = degraded/unhealthy; 🟡 = unknown / visibility-limited (NEW default for Phase 1 container mode)"
+    "KEY: 🟢 = healthy; 🔴 = degraded/unhealthy; 🟡 = unknown / visibility-limited. "
+    "A future lab can teach how to run cka-coach in a container, Pod, or Service while preserving the evidence paths it needs."
 )
 
 # --------------------------

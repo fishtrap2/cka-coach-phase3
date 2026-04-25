@@ -2,13 +2,29 @@
 # cka-coach Dockerfile
 #
 # Purpose:
-#   Build a runnable container image for the Phase 1 cka-coach prototype.
+#   Build a runnable container image for the Phase 2 cka-coach application.
 #
 # What this image does:
 #   - installs Python
 #   - installs the Python dependencies from requirements.txt
 #   - copies the cka-coach source code into the image
 #   - starts the Streamlit dashboard on port 8501
+#
+# Important product note:
+#   Running cka-coach inside a container is useful for packaging and deployment,
+#   but it also narrows which boundaries the app can inspect directly.
+#   In this mode, cka-coach may lose direct visibility into host-level evidence
+#   such as systemd-managed services, node-local files, and other runtime facts
+#   that live outside the container boundary.
+#
+# What that means for students:
+#   - some ELS layers may become visibility-limited
+#   - health may appear unknown on lower/node layers even when the cluster is
+#     otherwise healthy
+#   - this is expected at this stage, not necessarily a product bug
+#
+# Later labs can teach how to package cka-coach into a container, Pod, or
+# Service while still preserving the right evidence pathways.
 #
 # Why this matters in Kubernetes:
 #   A container image is the packaged application artifact.

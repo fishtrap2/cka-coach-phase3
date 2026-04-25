@@ -144,6 +144,20 @@ export OPENAI_API_KEY=your_key_here
 streamlit run ui/dashboard.py
 ```
 
+### Important note about running in a container
+
+At this stage of a student's Kubernetes journey, running cka-coach inside a container is expected to reduce what the app can inspect directly.
+
+Why:
+
+- a container boundary limits access to host-level evidence
+- cka-coach may no longer be able to cross some API and runtime boundaries directly
+- lower ELS layers may therefore become visibility-limited
+
+That means it is normal for cka-coach to be prevented from fully displaying or understanding health on parts of the ELS panel when it runs inside a container without additional host integration.
+
+This is not the end-state teaching model. A future lab can teach how to package cka-coach into a container, Pod, or Service properly so it continues to work with the right evidence pathways preserved.
+
 ---
 
 ## Roadmap
