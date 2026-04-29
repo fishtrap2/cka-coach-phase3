@@ -71,9 +71,29 @@ Helm may be used for installing add-ons, but the student should still see:
 - how to validate it
 - how to remove it
 
-## Calico expectations
+## CNI installation paths
 
-Calico should be installed by default for the Phase 3 testbed unless the user asks for another CNI.
+The lab supports three CNI paths. Calico is the default. The student chooses at the start of the lesson.
+
+Because CNI removal is unreliable (leftover iptables rules, interfaces, kernel state, and config files), the correct teaching model is:
+- remove Kubernetes fully via `kubeadm reset` + node cleanup
+- reinstall Kubernetes cleanly
+- install the chosen CNI from scratch
+
+This teaches students that CNI is a cluster-level architectural decision, not a hot-swap.
+
+### Path 1 — Default bridge (no CNI)
+
+Install kubeadm without a CNI plugin. Use this path to show:
+- what breaks without a CNI (cross-node pod communication fails)
+- why CNI exists
+- what the cluster looks like in a CNI-absent state
+
+Validation must show pods stuck in Pending or not ready due to missing network.
+
+### Path 2 — Calico (default path)
+
+Calico is the default CNI for the Phase 3 testbed.
 
 When installing Calico, include validation for:
 - tigera-operator
@@ -85,3 +105,25 @@ When installing Calico, include validation for:
 - whisker if enabled
 - IPPools
 - tigerastatus if available
+
+### Path 3 — Cilium
+
+Cilium is an optional CNI path. Use this path to contrast with Calico and introduce eBPF.
+
+When installing Cilium, include validation for:
+- cilium-operator
+- cilium DaemonSet (one pod per node)
+- cilium-envoy if present
+- `cilium status` output if cilium CLI is available
+- node readiness after CNI comes up
+
+## CNI removal rule
+
+Do not attempt in-place CNI removal or migration. Always guide the student through:
+1. explain why CNI removal is unreliable
+2. `kubeadm reset` on all nodes
+3. node-level cleanup (CNI config, interfaces, iptables, kernel state)
+4. fresh Kubernetes install
+5. CNI install from chosen path
+
+This is the honest real-world answer and the correct CKA mental model.
