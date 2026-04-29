@@ -1,6 +1,8 @@
-# cka-coach — Phase 2
+# cka-coach — Phase 3
 
 > "What is actually happening inside your Kubernetes cluster?"
+
+> _README updated for Phase 3 with Amazon Q Developer_
 
 cka-coach is a **Kubernetes learning system** that turns a running cluster into a **teaching instrument panel**.
 
@@ -14,9 +16,13 @@ It helps CKA / LFS258 students understand:
 
 ---
 
+## Phase 3 — UI Modernisation Milestone
+
+Phase 3 builds on the networking foundation of Phase 2, introducing a modernised UI layer.
+
 ## Phase 2 — Networking Visibility Milestone (v0.6.0)
 
-Phase 2 introduces a **complete networking understanding layer** grounded in real cluster evidence.
+Phase 2 introduced a **complete networking understanding layer** grounded in real cluster evidence.
 
 ### Networking Panel (Source of Truth)
 
@@ -135,8 +141,8 @@ It is a **teaching system** that:
 ### From source
 
 ```bash
-git clone https://github.com/fishtrap2/cka-coach-phase2.git
-cd cka-coach-phase2
+git clone https://github.com/fishtrap2/cka-coach-phase3.git
+cd cka-coach-phase3
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -175,8 +181,8 @@ Next steps:
 ## Status
 
 - Phase 1: completed (public repo)
-- Phase 2: networking foundation complete in this release
-- Phase 2+: active coaching and deeper reasoning in progress
+- Phase 2: networking foundation complete
+- Phase 3: UI modernisation in progress
 
 ---
 
