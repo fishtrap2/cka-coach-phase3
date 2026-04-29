@@ -36,5 +36,16 @@ Network visual HTML (`render_network_visual_html`) stays as-is — complexity ju
 - `src/lessons.py` — 894 lines
 - Total — ~9,400 lines
 
+### Chat log
+`docs/aidlc/chats/2026-04-29-phase3-kickoff.md`
+
 ### Next session
-Begin Option 1 implementation.
+Begin Option 1 — multi-page split of `dashboard.py`.
+
+---
+
+## Convention
+
+Compacted chat sessions are saved to `docs/aidlc/chats/YYYY-MM-DD-<topic>.md`.
+This dev-log links to each one and summarises decisions made.
+To resume a session, paste the compact summary from the relevant chat file at the start of a new Q chat.
