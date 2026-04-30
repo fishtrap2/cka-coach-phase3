@@ -179,7 +179,7 @@ Per `aidlc-workflow-rules.md`, the following need your sign-off before any code 
 
 ## Status
 
-- [ ] Inception approved
+- [x] Inception approved
 - [ ] Construction started
 - [ ] Construction complete
 - [ ] Operations sign-off
