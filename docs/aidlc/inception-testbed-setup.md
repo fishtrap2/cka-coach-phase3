@@ -35,6 +35,34 @@ A CKA/LFS258 student needs two Linux VMs with Kubernetes installed and a CNI con
 
 ---
 
+## UI Manifestation
+
+The testbed workflow will be implemented as a **dedicated Streamlit page** (`ui/pages/4_Testbed.py`), not as part of the existing Lesson section.
+
+### Rationale
+
+- The existing lesson console in `dashboard.py` is marked "Under Construction" and partially collapsed — building on it now adds risk
+- The testbed workflow has distinct UI needs: AWS validation panel, per-node status, cost strip, step-by-step guided flow with confirmation gates
+- A self-contained page keeps the testbed workflow independent and reviewable on its own
+- In a future session, we can decide whether to unify the testbed page with the lesson system or keep them separate
+
+### Page structure
+
+The testbed page will follow the UI and learning experience rules:
+
+1. **Phase indicator** — where the student is in the overall workflow
+2. **AWS environment panel** — instance status, VPC, connectivity validation (L0)
+3. **Prerequisites panel** — per-node kernel, runtime, kubelet checks (L1–L4.1)
+4. **Kubernetes status panel** — kubeadm init/join progress, node readiness (L4.5, L5)
+5. **CNI status panel** — CNI selection, install progress, validation (L4.3)
+6. **Next action** — single clear call to action at all times
+7. **Evidence** — raw output behind expanders, not shown by default
+8. **Cost strip** — running instance cost at L0 (future feature, placeholder now)
+
+The existing Lesson section remains untouched by this work.
+
+---
+
 ## Proposed Repo Structure
 
 ```
