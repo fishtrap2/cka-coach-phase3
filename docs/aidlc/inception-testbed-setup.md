@@ -180,6 +180,6 @@ Per `aidlc-workflow-rules.md`, the following need your sign-off before any code 
 ## Status
 
 - [x] Inception approved
-- [ ] Construction started
-- [ ] Construction complete
-- [ ] Operations sign-off
+- [x] Construction started
+- [x] Construction complete
+- [ ] Operations sign-off — pending PR review
