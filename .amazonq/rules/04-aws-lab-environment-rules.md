@@ -115,6 +115,23 @@ Students must be made aware of running costs:
 
 cka-coach should surface a cost reminder at the start and end of every lab session.
 
+## L0 Cost Visibility (future feature)
+
+The ELS L0 panel should show a live running cost estimate for the student's lab environment:
+
+- Instances currently running and elapsed uptime this session
+- Estimated cost so far (instance type × uptime × hourly rate)
+- Projected cost if left running for 8 hours
+- A clear reminder to stop instances when done
+
+This makes L0 tangible — students see that a running cluster has a real cost attached, not just an abstract infrastructure layer.
+
+Implementation options:
+- Query AWS Cost Explorer (`aws ce get-cost-and-usage`) for actual spend
+- Or calculate locally from instance type + uptime from `aws ec2 describe-instances` (simpler, no Cost Explorer permissions needed)
+
+The cost panel should be non-intrusive — a small always-visible strip at the top of the L0 section, not a modal or warning.
+
 ---
 
 ## ELS mapping
