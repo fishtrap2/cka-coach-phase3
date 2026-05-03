@@ -13,15 +13,15 @@ Kubelet / kubeadm / kubectl installation is deferred to Phase 3
 ELS layers covered:
 - L1: swap, kernel modules, sysctl
 - L2: runc (installed as part of containerd)
-- L3: containerd
+- L3: containerd, containerd CRI plugin
 
 Option B (SSH-based automatic checking) is tracked in GitHub issue #1.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import List
 
-from testbed.testbed_state import CheckResult, NodeState
+from testbed.testbed_state import NodeState
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ PREREQ_STEPS = [
             "sudo apt-get update",
             "# Step 2 — install containerd",
             "sudo apt-get install -y containerd.io",
-            "# Step 3 — configure containerd to use the systemd cgroup driver (required by Kubernetes)",
+            "# Step 3 — generate default config and enable systemd cgroup driver",
             "sudo containerd config default | sudo tee /etc/containerd/config.toml",
             "sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml",
             "sudo systemctl enable --now containerd",
@@ -150,6 +150,46 @@ PREREQ_STEPS = [
             "we will explain why in the L3 container runtime lesson."
         ),
         "confirm_question": "Does `systemctl is-active containerd` show `active`?",
+    },
+    {
+        "id": "containerd_cri",
+        "els_layer": "L3",
+        "title": "Verify containerd CRI plugin is enabled",
+        "why": (
+            "containerd has a plugin called CRI (Container Runtime Interface) that Kubernetes uses "
+            "to talk to it. On some Ubuntu versions, this plugin is disabled by default. "
+            "If it is disabled, kubeadm init will fail with an 'unknown service' error even though "
+            "containerd appears to be running. "
+            "We will explore the CRI interface in the L3 container runtime lesson."
+        ),
+        "check_commands": [
+            "grep 'disabled_plugins' /etc/containerd/config.toml",
+        ],
+        "check_hint": (
+            "If the output contains `\"cri\"` in the disabled_plugins list, the CRI plugin is disabled — run the fix commands. "
+            "If the output is empty or does not mention cri, you are good."
+        ),
+        "fix_commands": [
+            "# Regenerate the containerd config with CRI enabled",
+            "sudo containerd config default | sudo tee /etc/containerd/config.toml",
+            "# Enable the systemd cgroup driver (required by Kubernetes)",
+            "sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml",
+            "# Remove any line that disables the CRI plugin",
+            "sudo sed -i '/disabled_plugins.*cri/d' /etc/containerd/config.toml",
+            "# Restart containerd to apply the new config",
+            "sudo systemctl restart containerd",
+            "# Verify Kubernetes can now talk to containerd",
+            "sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info",
+        ],
+        "fix_hint": (
+            "This regenerates the containerd config from scratch, enables the systemd cgroup driver, "
+            "removes any line that disables the CRI plugin, and restarts containerd. "
+            "The final crictl command confirms Kubernetes can now talk to containerd."
+        ),
+        "confirm_question": (
+            "Does `grep disabled_plugins /etc/containerd/config.toml` NOT contain 'cri', "
+            "and does `sudo crictl --runtime-endpoint unix:///var/run/containerd/containerd.sock info` succeed?"
+        ),
     },
     {
         "id": "runc",
