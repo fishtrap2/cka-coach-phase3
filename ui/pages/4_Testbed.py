@@ -198,8 +198,10 @@ with st.expander(
 # ---------------------------------------------------------------------------
 
 # Initialise prereq state for each node
+# Reset if step count has changed (e.g. new steps added)
 for node in state.nodes:
-    if node.name not in st.session_state["prereq_states"]:
+    existing = st.session_state["prereq_states"].get(node.name)
+    if existing is None or len(existing.steps) != len(PREREQ_STEPS):
         st.session_state["prereq_states"][node.name] = build_node_prereq_state(node)
 
 all_prereqs_done = (
@@ -241,33 +243,41 @@ with st.expander(
                 st.progress(done_count / len(PREREQ_STEPS))
                 st.caption(f"{done_count} of {len(PREREQ_STEPS)} steps complete")
 
+                # Shortcut for re-testing or experienced students
+                shortcut_col1, shortcut_col2 = st.columns([2, 1])
+                shortcut_col1.caption(
+                    "Already configured this node? Mark all steps complete to skip ahead."
+                )
+                if shortcut_col2.button(f"Mark all complete", key=f"mark_all_{node.name}"):
+                    for s in prereq_state.steps:
+                        s.confirmed = True
+                    st.session_state["prereq_states"][node.name] = prereq_state
+                    st.rerun()
+
                 for idx, step_def in enumerate(PREREQ_STEPS):
                     step_state = prereq_state.get_step(step_def["id"])
                     step_key = f"{node.name}_{step_def['id']}"
 
                     # Completed steps — show collapsed summary
                     if step_state.confirmed:
-                        st.markdown(f"✅ **[{step_def['els_layer']}] {step_def['title']}** — done")
+                        col_a, col_b = st.columns([4, 1])
+                        col_a.markdown(f"✅ **[{step_def['els_layer']}] {step_def['title']}** — done")
+                        if col_b.button("Undo", key=f"undo_{step_key}"):
+                            step_state.confirmed = False
+                            st.session_state["prereq_states"][node.name] = prereq_state
+                            st.rerun()
                         continue
 
-                    # Locked steps — not yet reached
-                    if idx > current_idx:
-                        st.markdown(f"🔒 **[{step_def['els_layer']}] {step_def['title']}** — complete previous steps first")
-                        continue
-
-                    # Active step
+                    # Active step — no longer locked, student can work on any step
                     with st.container(border=True):
                         st.markdown(f"**[{step_def['els_layer']}] Step {idx + 1}: {step_def['title']}**")
 
-                        # Why this matters — beginner tone
                         st.info(f"**Why Kubernetes needs this:**  \n{step_def['why']}")
 
-                        # Check commands
                         st.markdown("**Run this on the node to check current state:**")
                         _render_commands(step_def["check_commands"])
                         st.caption(step_def["check_hint"])
 
-                        # Did it pass?
                         passed = st.radio(
                             f"Result for: {step_def['confirm_question']}",
                             options=["— select —", "✅ Yes, it passed", "❌ No, it needs fixing"],
@@ -289,9 +299,6 @@ with st.expander(
                                 st.caption("After running the fix commands, re-run the check command above and select ✅ Yes when it passes.")
                             else:
                                 st.caption(step_def["fix_hint"])
-
-                        # Stop rendering further steps for this node
-                        break
 
         if all_prereqs_done and state.phase == PHASE_PREREQUISITES:
             if st.button("✅ All prerequisites done — proceed to Kubernetes install", key="advance_to_k8s"):
