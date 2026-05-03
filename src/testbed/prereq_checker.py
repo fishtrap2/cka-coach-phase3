@@ -3,298 +3,226 @@ prereq_checker.py
 
 Node prerequisite checks for the cka-coach testbed workflow.
 
-Option A implementation: generates commands for the student to run on each
-node and paste back. cka-coach then parses the output and reports pass/fail.
+Redesigned as individual guided steps with beginner-friendly tone.
+Each step explains why Kubernetes needs this configuration before
+the student runs anything.
 
-Option B (SSH-based automatic checking) is tracked in GitHub issue #1.
+Kubelet / kubeadm / kubectl installation is deferred to Phase 3
+(k8s_installer.py) — it is not needed until kubeadm init runs.
 
 ELS layers covered:
-- L1: kernel modules, sysctl, swap
-- L2: runc (via containerd)
+- L1: swap, kernel modules, sysctl
+- L2: runc (installed as part of containerd)
 - L3: containerd
-- L4.1: kubelet
+
+Option B (SSH-based automatic checking) is tracked in GitHub issue #1.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from testbed.testbed_state import CheckResult, NodeState
 
 
 # ---------------------------------------------------------------------------
-# The prereq bundle — one per node.
-# Contains the commands to run and a parser for the pasted output.
+# Individual prereq steps
 # ---------------------------------------------------------------------------
 
-@dataclass
-class NodePrereqBundle:
-    node_name: str
-    role: str                              # control-plane or worker
-    private_ip: str
-    commands: List[str] = field(default_factory=list)
-    paste_output: str = ""                 # student pastes combined output here
-    checks: List[CheckResult] = field(default_factory=list)
-    parsed: bool = False
-
-    def all_passed(self) -> bool:
-        return self.parsed and all(check.passed for check in self.checks)
-
-    def failed_checks(self) -> List[CheckResult]:
-        return [check for check in self.checks if not check.passed]
-
-
-# ---------------------------------------------------------------------------
-# Command set — what the student runs on each node
-# ---------------------------------------------------------------------------
-
-# These commands are safe, read-only, and produce parseable output.
-# They are grouped by ELS layer for the teaching moment.
-
-PREREQ_COMMANDS = [
-    # L1 — kernel
-    "echo '=== swap ===' && swapon --show",
-    "echo '=== kernel modules ===' && lsmod | grep -E 'overlay|br_netfilter'",
-    "echo '=== sysctl ===' && sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables net.ipv4.ip_forward 2>/dev/null",
-    "echo '=== kernel version ===' && uname -r",
-    # L3 — containerd
-    "echo '=== containerd ===' && systemctl is-active containerd 2>/dev/null || echo 'not-found'",
-    "echo '=== containerd version ===' && containerd --version 2>/dev/null || echo 'not-found'",
-    # L4.1 — kubelet
-    "echo '=== kubelet ===' && systemctl is-active kubelet 2>/dev/null || echo 'not-found'",
-    "echo '=== kubelet version ===' && kubelet --version 2>/dev/null || echo 'not-found'",
-    # L2 — runc
-    "echo '=== runc ===' && runc --version 2>/dev/null || echo 'not-found'",
+PREREQ_STEPS = [
+    {
+        "id": "swap",
+        "els_layer": "L1",
+        "title": "Disable swap",
+        "why": (
+            "Kubernetes will refuse to start if swap is enabled on this node. "
+            "For now, just know that K8s needs swap off to manage memory reliably across pods. "
+            "We will explore why in detail in the L1 kernel lesson."
+        ),
+        "check_commands": ["swapon --show"],
+        "check_hint": (
+            "If this command produces no output, swap is already off — you are good. "
+            "If you see lines of output, swap is on and needs to be disabled."
+        ),
+        "fix_commands": [
+            "sudo swapoff -a",
+            "sudo sed -i '/ swap / s/^/#/' /etc/fstab",
+        ],
+        "fix_hint": (
+            "The first command turns swap off now. "
+            "The second makes it permanent so it stays off after a reboot."
+        ),
+        "confirm_question": "Did `swapon --show` produce no output (swap is off)?",
+    },
+    {
+        "id": "kernel_modules",
+        "els_layer": "L1",
+        "title": "Load kernel modules",
+        "why": (
+            "Kubernetes networking depends on two Linux kernel modules: "
+            "`overlay` (used by the container filesystem) and `br_netfilter` (used by pod networking). "
+            "Without these, containers and pod networking will not work. "
+            "We will explore what these modules do in the L1 kernel and L4.3 CNI lessons."
+        ),
+        "check_commands": ["lsmod | grep -E 'overlay|br_netfilter'"],
+        "check_hint": (
+            "You should see two lines — one containing 'overlay' and one containing 'br_netfilter'. "
+            "If either is missing, run the fix commands below."
+        ),
+        "fix_commands": [
+            "sudo modprobe overlay",
+            "sudo modprobe br_netfilter",
+            "cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf",
+            "overlay",
+            "br_netfilter",
+            "EOF",
+        ],
+        "fix_hint": (
+            "The first two commands load the modules now. "
+            "The last block writes them to a config file so they load automatically on reboot."
+        ),
+        "confirm_question": "Does `lsmod | grep -E 'overlay|br_netfilter'` show both modules?",
+    },
+    {
+        "id": "sysctl",
+        "els_layer": "L1",
+        "title": "Configure kernel networking settings",
+        "why": (
+            "Kubernetes needs the Linux kernel to forward network packets between pods and nodes. "
+            "These two settings enable that. Without them, pod-to-pod and pod-to-service "
+            "networking will silently fail. "
+            "We will explore what these settings do in the L1 kernel and L4.3 CNI lessons."
+        ),
+        "check_commands": [
+            "sysctl net.ipv4.ip_forward",
+            "sysctl net.bridge.bridge-nf-call-iptables",
+        ],
+        "check_hint": (
+            "Both values should show = 1. "
+            "If either shows = 0, run the fix commands below."
+        ),
+        "fix_commands": [
+            "cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf",
+            "net.ipv4.ip_forward=1",
+            "net.bridge.bridge-nf-call-iptables=1",
+            "EOF",
+            "sudo sysctl --system",
+        ],
+        "fix_hint": (
+            "The first block writes the settings to a config file. "
+            "The last command applies them immediately without a reboot."
+        ),
+        "confirm_question": "Do both sysctl values show = 1?",
+    },
+    {
+        "id": "containerd",
+        "els_layer": "L3",
+        "title": "Install and start containerd",
+        "why": (
+            "containerd is the container runtime — the software that actually runs containers on this node. "
+            "Kubernetes does not run containers directly; it delegates that job to containerd. "
+            "Without containerd, Kubernetes cannot start any pods. "
+            "We will explore how containerd fits into the ELS model in the L3 container runtime lesson."
+        ),
+        "check_commands": ["systemctl is-active containerd"],
+        "check_hint": (
+            "If the output is `active`, containerd is running and you are good. "
+            "If it says `inactive` or `not-found`, run the fix commands below."
+        ),
+        "fix_commands": [
+            "# Step 1 — add the Docker apt repository (containerd is distributed by Docker)",
+            "sudo apt-get update",
+            "sudo apt-get install -y ca-certificates curl",
+            "sudo install -m 0755 -d /etc/apt/keyrings",
+            "sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc",
+            "sudo chmod a+r /etc/apt/keyrings/docker.asc",
+            'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null',
+            "sudo apt-get update",
+            "# Step 2 — install containerd",
+            "sudo apt-get install -y containerd.io",
+            "# Step 3 — configure containerd to use the systemd cgroup driver (required by Kubernetes)",
+            "sudo containerd config default | sudo tee /etc/containerd/config.toml",
+            "sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml",
+            "sudo systemctl enable --now containerd",
+        ],
+        "fix_hint": (
+            "This installs containerd from the Docker apt repository and configures it to use "
+            "the systemd cgroup driver. Kubernetes requires this cgroup driver setting — "
+            "we will explain why in the L3 container runtime lesson."
+        ),
+        "confirm_question": "Does `systemctl is-active containerd` show `active`?",
+    },
+    {
+        "id": "runc",
+        "els_layer": "L2",
+        "title": "Verify runc is installed",
+        "why": (
+            "runc is the low-level OCI runtime that containerd uses to actually create and start containers. "
+            "It is installed automatically with containerd.io — you do not need to install it separately. "
+            "We will explore what runc does in the L2 OCI runtime lesson."
+        ),
+        "check_commands": ["runc --version"],
+        "check_hint": (
+            "You should see a runc version string. "
+            "If you see 'not found', containerd.io may not have installed correctly — "
+            "re-run the containerd fix commands above."
+        ),
+        "fix_commands": [],
+        "fix_hint": (
+            "runc is installed as part of containerd.io. "
+            "If it is missing, re-run the containerd install steps above."
+        ),
+        "confirm_question": "Does `runc --version` show a version string?",
+    },
 ]
 
 
-def build_prereq_bundle(node: NodeState) -> NodePrereqBundle:
-    """
-    Build the prereq command bundle for a node.
-    Returns a NodePrereqBundle with commands ready to show the student.
-    """
-    return NodePrereqBundle(
-        node_name=node.name,
-        role=node.role,
-        private_ip=node.private_ip,
-        commands=PREREQ_COMMANDS,
-    )
+# ---------------------------------------------------------------------------
+# Step state — tracks student progress through the prereq steps per node
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PrereqStepState:
+    step_id: str
+    confirmed: bool = False
+    fix_shown: bool = False
+
+
+@dataclass
+class NodePrereqState:
+    node_name: str
+    role: str
+    private_ip: str
+    public_ip: str = ""
+    steps: List[PrereqStepState] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.steps:
+            self.steps = [PrereqStepState(step_id=s["id"]) for s in PREREQ_STEPS]
+
+    def current_step_index(self) -> int:
+        for i, step in enumerate(self.steps):
+            if not step.confirmed:
+                return i
+        return len(self.steps)
+
+    def all_done(self) -> bool:
+        return all(s.confirmed for s in self.steps)
+
+    def get_step(self, step_id: str) -> PrereqStepState:
+        for s in self.steps:
+            if s.step_id == step_id:
+                return s
+        return PrereqStepState(step_id=step_id)
 
 
 def build_ssh_instruction(node: NodeState) -> str:
-    """
-    Return the SSH command the student should use to connect to this node.
-    Uses private IP — student must be on the same network or using a bastion.
-    """
-    return f"ssh ubuntu@{node.private_ip}"
+    return f"ssh ubuntu@{node.public_ip or node.private_ip}"
 
 
-# ---------------------------------------------------------------------------
-# Output parser — reads the pasted combined output and produces CheckResults
-# ---------------------------------------------------------------------------
-
-def _section(output: str, marker: str) -> str:
-    """Extract the text after a === marker === line."""
-    lines = output.splitlines()
-    capturing = False
-    result = []
-    for line in lines:
-        if f"=== {marker} ===" in line:
-            capturing = True
-            continue
-        if capturing:
-            if line.startswith("==="):
-                break
-            result.append(line)
-    return "\n".join(result).strip()
-
-
-def parse_prereq_output(bundle: NodePrereqBundle) -> NodePrereqBundle:
-    """
-    Parse the student's pasted output and populate bundle.checks.
-    Called after the student pastes the output into the UI.
-    """
-    output = bundle.paste_output
-    checks = []
-
-    # --- L1: swap ---
-    swap_output = _section(output, "swap")
-    swap_off = swap_output.strip() == ""
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — swap disabled",
-        passed=swap_off,
-        detail="Swap is off" if swap_off else f"Swap is on: {swap_output}",
-        remediation="Run: sudo swapoff -a && sudo sed -i '/ swap / s/^/#/' /etc/fstab",
-        els_layer="L1",
-        command="swapon --show",
-    ))
-
-    # --- L1: kernel modules ---
-    modules_output = _section(output, "kernel modules")
-    has_overlay = "overlay" in modules_output
-    has_br_netfilter = "br_netfilter" in modules_output
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — overlay module",
-        passed=has_overlay,
-        detail="overlay loaded" if has_overlay else "overlay not loaded",
-        remediation="Run: sudo modprobe overlay && echo overlay | sudo tee /etc/modules-load.d/k8s.conf",
-        els_layer="L1",
-        command="lsmod | grep overlay",
-    ))
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — br_netfilter module",
-        passed=has_br_netfilter,
-        detail="br_netfilter loaded" if has_br_netfilter else "br_netfilter not loaded",
-        remediation="Run: sudo modprobe br_netfilter && echo br_netfilter | sudo tee -a /etc/modules-load.d/k8s.conf",
-        els_layer="L1",
-        command="lsmod | grep br_netfilter",
-    ))
-
-    # --- L1: sysctl ---
-    sysctl_output = _section(output, "sysctl")
-    ip_forward = "net.ipv4.ip_forward = 1" in sysctl_output
-    bridge_iptables = "net.bridge.bridge-nf-call-iptables = 1" in sysctl_output
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — ip_forward",
-        passed=ip_forward,
-        detail="net.ipv4.ip_forward = 1" if ip_forward else "net.ipv4.ip_forward not set",
-        remediation="Run: echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/k8s.conf && sudo sysctl --system",
-        els_layer="L1",
-        command="sysctl net.ipv4.ip_forward",
-    ))
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — bridge-nf-call-iptables",
-        passed=bridge_iptables,
-        detail="net.bridge.bridge-nf-call-iptables = 1" if bridge_iptables else "not set",
-        remediation="Run: echo 'net.bridge.bridge-nf-call-iptables=1' | sudo tee -a /etc/sysctl.d/k8s.conf && sudo sysctl --system",
-        els_layer="L1",
-        command="sysctl net.bridge.bridge-nf-call-iptables",
-    ))
-
-    # --- L3: containerd ---
-    containerd_output = _section(output, "containerd")
-    containerd_active = "active" in containerd_output
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — containerd active",
-        passed=containerd_active,
-        detail=f"containerd: {containerd_output.strip() or 'not found'}",
-        remediation=(
-            "Install containerd:\n"
-            "  sudo apt-get update\n"
-            "  sudo apt-get install -y ca-certificates curl\n"
-            "  sudo install -m 0755 -d /etc/apt/keyrings\n"
-            "  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc\n"
-            "  sudo chmod a+r /etc/apt/keyrings/docker.asc\n"
-            "  echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] "
-            "https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable\" "
-            "| sudo tee /etc/apt/sources.list.d/docker.list > /dev/null\n"
-            "  sudo apt-get update\n"
-            "  sudo apt-get install -y containerd.io\n"
-            "  sudo systemctl enable --now containerd"
-        ),
-        els_layer="L3",
-        command="systemctl is-active containerd",
-    ))
-
-    containerd_ver = _section(output, "containerd version").strip()
-    if containerd_ver and "not-found" not in containerd_ver:
-        checks.append(CheckResult(
-            name=f"{bundle.node_name} — containerd version",
-            passed=True,
-            detail=containerd_ver,
-            els_layer="L3",
-            command="containerd --version",
-        ))
-
-    # --- L4.1: kubelet ---
-    kubelet_output = _section(output, "kubelet")
-    # kubelet may be inactive before kubeadm init — that is expected
-    kubelet_found = "not-found" not in kubelet_output
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — kubelet installed",
-        passed=kubelet_found,
-        detail=f"kubelet: {kubelet_output.strip() or 'not found'}",
-        remediation=(
-            "Add the Kubernetes apt repository and install kubelet, kubeadm, kubectl:\n"
-            "  sudo apt-get update\n"
-            "  sudo apt-get install -y apt-transport-https ca-certificates curl gpg\n"
-            "  curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key "
-            "| sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg\n"
-            "  echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] "
-            "https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' "
-            "| sudo tee /etc/apt/sources.list.d/kubernetes.list\n"
-            "  sudo apt-get update\n"
-            "  sudo apt-get install -y kubelet kubeadm kubectl\n"
-            "  sudo apt-mark hold kubelet kubeadm kubectl"
-        ),
-        els_layer="L4.1",
-        command="systemctl is-active kubelet",
-    ))
-
-    kubelet_ver = _section(output, "kubelet version").strip()
-    if kubelet_ver and "not-found" not in kubelet_ver:
-        checks.append(CheckResult(
-            name=f"{bundle.node_name} — kubelet version",
-            passed=True,
-            detail=kubelet_ver,
-            els_layer="L4.1",
-            command="kubelet --version",
-        ))
-
-    # --- L2: runc ---
-    runc_output = _section(output, "runc").strip()
-    runc_found = bool(runc_output) and "not-found" not in runc_output
-    checks.append(CheckResult(
-        name=f"{bundle.node_name} — runc installed",
-        passed=runc_found,
-        detail=runc_output if runc_found else "runc not found",
-        remediation="runc is installed as part of containerd — check containerd installation.",
-        els_layer="L2",
-        command="runc --version",
-    ))
-
-    bundle.checks = checks
-    bundle.parsed = True
-    return bundle
-
-
-# ---------------------------------------------------------------------------
-# Teaching notes — shown alongside the commands in the UI
-# ---------------------------------------------------------------------------
-
-PREREQ_TEACHING_NOTES: Dict[str, str] = {
-    "swap": (
-        "L1 — Kubernetes requires swap to be disabled. "
-        "The kubelet will refuse to start if swap is on, because swap undermines "
-        "the memory guarantees that Kubernetes relies on for pod scheduling."
-    ),
-    "kernel modules": (
-        "L1 — overlay and br_netfilter are kernel modules that container networking depends on. "
-        "overlay enables the overlay filesystem used by containerd. "
-        "br_netfilter allows iptables to see bridged traffic, which is how kube-proxy and CNI plugins work."
-    ),
-    "sysctl": (
-        "L1 — These sysctl settings tell the kernel to forward IP packets between interfaces "
-        "and to apply iptables rules to bridged traffic. Without these, pod-to-pod and "
-        "pod-to-service networking will not work."
-    ),
-    "containerd": (
-        "L3 — containerd is the CRI (Container Runtime Interface) that kubelet uses to "
-        "pull images and manage container lifecycle. It sits between kubelet (L4.1) and "
-        "runc (L2), which is the actual OCI runtime that creates containers."
-    ),
-    "kubelet": (
-        "L4.1 — kubelet is the node agent. It watches for PodSpecs from the API server "
-        "and makes sure the right containers are running on this node. "
-        "It will be inactive until kubeadm init or join runs — that is expected at this stage."
-    ),
-    "runc": (
-        "L2 — runc is the OCI runtime. It is invoked by containerd to actually create "
-        "and start containers using Linux namespaces and cgroups. "
-        "Students rarely interact with runc directly, but it is the lowest software layer "
-        "before the kernel."
-    ),
-}
-
-
-def get_teaching_note(section: str) -> str:
-    return PREREQ_TEACHING_NOTES.get(section, "")
+def build_node_prereq_state(node: NodeState) -> NodePrereqState:
+    return NodePrereqState(
+        node_name=node.name,
+        role=node.role,
+        private_ip=node.private_ip,
+        public_ip=node.public_ip,
+    )

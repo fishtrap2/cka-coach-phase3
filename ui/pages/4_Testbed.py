@@ -5,8 +5,8 @@ Guided two-VM Kubernetes testbed setup and teardown page.
 
 Follows the UI and learning experience rules:
 - Progressive disclosure — show what matters first
-- Raw evidence behind expanders
 - Every step identifies its ELS layer
+- Beginner-friendly tone — explain why before asking the student to run anything
 - Confirmation gates before destructive operations
 - Cost reminder at start and end of session
 """
@@ -19,10 +19,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from testbed.testbed_state import (
     TestbedState,
-    NodeState,
-    CNI_CALICO,
-    CNI_CILIUM,
-    CNI_BRIDGE,
     CNI_OPTIONS,
     CNI_DESCRIPTIONS,
     PHASE_AWS_VALIDATION,
@@ -36,11 +32,10 @@ from testbed.testbed_state import (
 )
 from testbed.aws_validator import validate_aws_environment
 from testbed.prereq_checker import (
-    build_prereq_bundle,
+    PREREQ_STEPS,
+    NodePrereqState,
     build_ssh_instruction,
-    parse_prereq_output,
-    get_teaching_note as prereq_note,
-    NodePrereqBundle,
+    build_node_prereq_state,
 )
 from testbed.k8s_installer import (
     build_k8s_install_bundle,
@@ -74,60 +69,43 @@ st.set_page_config(layout="wide", page_title="cka-coach — Testbed")
 st.title("🖥️ Testbed Setup")
 st.caption("Guided two-VM Kubernetes cluster setup and teardown — powered by the ELS model.")
 
-# --------------------------
-# Observer Context Banner
-# --------------------------
+# Observer context banner
 _observer = collect_observer_context()
 _banner_color = "🟢" if _observer.cluster_reachable else "🟡"
-st.info(
-    f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}"
-)
+st.info(f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}")
 
 # ---------------------------------------------------------------------------
-# Session state initialisation
+# Session state
 # ---------------------------------------------------------------------------
 
 if "testbed_state" not in st.session_state:
     st.session_state["testbed_state"] = TestbedState()
-
 if "k8s_bundle" not in st.session_state:
     st.session_state["k8s_bundle"] = None
-
 if "cni_bundle" not in st.session_state:
     st.session_state["cni_bundle"] = None
-
 if "teardown_bundle" not in st.session_state:
     st.session_state["teardown_bundle"] = None
-
-if "prereq_bundles" not in st.session_state:
-    st.session_state["prereq_bundles"] = {}
+if "prereq_states" not in st.session_state:
+    st.session_state["prereq_states"] = {}
 
 state: TestbedState = st.session_state["testbed_state"]
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _save_state():
     st.session_state["testbed_state"] = state
 
 
-def _check_icon(passed: bool) -> str:
-    return "✅" if passed else "❌"
-
-
 def _render_checks(checks, show_remediation: bool = True):
     for check in checks:
-        icon = _check_icon(check.passed)
+        icon = "✅" if check.passed else "❌"
         st.markdown(f"{icon} **[{check.els_layer}] {check.name}** — {check.detail}")
         if not check.passed and show_remediation and check.remediation:
             st.caption(f"↳ {check.remediation}")
 
 
-def _render_commands(commands: list, language: str = "bash"):
-    code = "\n".join(cmd for cmd in commands if not cmd.startswith("#") or cmd.strip() == "")
-    comments = [cmd for cmd in commands if cmd.startswith("#")]
-    st.code("\n".join(commands), language=language)
+def _render_commands(commands: list):
+    st.code("\n".join(commands), language="bash")
 
 
 def _phase_progress():
@@ -156,10 +134,8 @@ def _cost_reminder():
 # ---------------------------------------------------------------------------
 
 top_col1, top_col2 = st.columns([2, 1])
-
 with top_col1:
     _phase_progress()
-
 with top_col2:
     selected_cni = st.selectbox(
         "CNI path",
@@ -179,9 +155,10 @@ st.divider()
 # Phase 1 — AWS Environment Validation (L0)
 # ---------------------------------------------------------------------------
 
+aws_all_passed = bool(state.aws_checks) and all(c.passed for c in state.aws_checks) and all(n.passed() for n in state.nodes)
+
 with st.expander(
-    f"{'✅' if state.aws_checks and all(c.passed for c in state.aws_checks) else '🔲'} "
-    f"Phase 1 — {PHASE_LABELS[PHASE_AWS_VALIDATION]}",
+    f"{'✅' if aws_all_passed else '🔲'} Phase 1 — {PHASE_LABELS[PHASE_AWS_VALIDATION]}",
     expanded=(state.phase == PHASE_AWS_VALIDATION),
 ):
     st.caption("Validate that your AWS environment is ready before touching Kubernetes.")
@@ -207,108 +184,120 @@ with st.expander(
                 _render_checks(node.checks)
 
     _cost_reminder()
+    for note in state.notes:
+        st.info(note)
 
-    if state.notes:
-        for note in state.notes:
-            st.info(note)
-
-    aws_passed = bool(state.aws_checks) and all(c.passed for c in state.aws_checks)
-    node_checks_passed = all(n.passed() for n in state.nodes) if state.nodes else False
-
-    if aws_passed and node_checks_passed and state.phase == PHASE_AWS_VALIDATION:
+    if aws_all_passed and state.phase == PHASE_AWS_VALIDATION:
         if st.button("✅ AWS validation passed — proceed to prerequisites", key="advance_to_prereqs"):
             state.advance_phase()
             _save_state()
             st.rerun()
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Node Prerequisites (L1–L4.1)
+# Phase 2 — Node Prerequisites (L1, L2, L3)
 # ---------------------------------------------------------------------------
 
+# Initialise prereq state for each node
+for node in state.nodes:
+    if node.name not in st.session_state["prereq_states"]:
+        st.session_state["prereq_states"][node.name] = build_node_prereq_state(node)
+
+all_prereqs_done = (
+    bool(state.nodes)
+    and all(
+        st.session_state["prereq_states"].get(n.name, NodePrereqState(
+            node_name=n.name, role=n.role, private_ip=n.private_ip
+        )).all_done()
+        for n in state.nodes
+    )
+)
+
 with st.expander(
-    f"{'✅' if state.phase not in [PHASE_AWS_VALIDATION] and all(st.session_state['prereq_bundles'].get(n.name, NodePrereqBundle(node_name=n.name, role=n.role, private_ip=n.private_ip)).all_passed() for n in state.nodes) and state.nodes else '🔲'} "
-    f"Phase 2 — {PHASE_LABELS[PHASE_PREREQUISITES]}",
+    f"{'✅' if all_prereqs_done else '🔲'} Phase 2 — {PHASE_LABELS[PHASE_PREREQUISITES]}",
     expanded=(state.phase == PHASE_PREREQUISITES),
 ):
-    st.caption("Check that each node has the required kernel settings, container runtime, and kubelet installed.")
+    st.caption(
+        "Before Kubernetes can run, each node needs a few things configured at the kernel and runtime level. "
+        "We will go through them one at a time. For each step: read why it matters, run the check command, "
+        "then confirm whether it passed or needs fixing."
+    )
 
     if not state.nodes:
         st.info("Complete AWS validation first to detect your nodes.")
     else:
         for node in state.nodes:
-            bundle_key = node.name
-            if bundle_key not in st.session_state["prereq_bundles"]:
-                st.session_state["prereq_bundles"][bundle_key] = build_prereq_bundle(node)
-
-            bundle: NodePrereqBundle = st.session_state["prereq_bundles"][bundle_key]
+            prereq_state: NodePrereqState = st.session_state["prereq_states"][node.name]
+            current_idx = prereq_state.current_step_index()
 
             with st.container(border=True):
-                st.markdown(f"**{node.name}** ({node.role})")
-                st.caption(f"SSH: `{build_ssh_instruction(node)}`")
-
-                with st.expander("Commands to run on this node", expanded=False):
-                    st.caption(
-                        "**Step 1** — Copy all commands below and run them in your SSH session on this node. "
-                        "Then paste the combined output into the box below and click Parse."
-                    )
-                    _render_commands(bundle.commands)
-                    st.caption(
-                        f"SSH: `{build_ssh_instruction(node)}`"
-                    )
-
-                with st.expander("ELS teaching notes", expanded=False):
-                    for section in ["swap", "kernel modules", "sysctl", "containerd", "kubelet", "runc"]:
-                        note = prereq_note(section)
-                        if note:
-                            st.markdown(f"**{section}**")
-                            st.caption(note)
-
-                paste_key = f"prereq_paste_{node.name}"
-                pasted = st.text_area(
-                    f"**Step 2** — Paste output from {node.name}",
-                    key=paste_key,
-                    height=150,
-                    placeholder="Paste the combined output of all commands here...",
+                st.markdown(f"### {node.name} ({node.role})")
+                st.caption(
+                    f"SSH into this node: `{build_ssh_instruction(node)}`  \n"
+                    "Keep your SSH session open — you will run commands there for each step below."
                 )
 
-                if st.button(f"Parse output — {node.name}", key=f"parse_prereq_{node.name}"):
-                    bundle.paste_output = pasted
-                    bundle = parse_prereq_output(bundle)
-                    st.session_state["prereq_bundles"][bundle_key] = bundle
-                    st.rerun()
+                # Progress within this node
+                done_count = sum(1 for s in prereq_state.steps if s.confirmed)
+                st.progress(done_count / len(PREREQ_STEPS))
+                st.caption(f"{done_count} of {len(PREREQ_STEPS)} steps complete")
 
-                if bundle.parsed:
-                    passed_checks = [c for c in bundle.checks if c.passed]
-                    failed_checks = [c for c in bundle.checks if not c.passed]
+                for idx, step_def in enumerate(PREREQ_STEPS):
+                    step_state = prereq_state.get_step(step_def["id"])
+                    step_key = f"{node.name}_{step_def['id']}"
 
-                    if failed_checks:
-                        st.markdown("**Step 3 — Fix these issues then re-run the check commands above**")
-                        for check in failed_checks:
-                            st.error(f"❌ [{check.els_layer}] {check.name}: {check.detail}")
-                            if check.remediation:
-                                st.code(check.remediation, language="bash")
-                        if passed_checks:
-                            st.markdown("**Already passing:**")
-                            for check in passed_checks:
-                                st.markdown(f"✅ [{check.els_layer}] {check.name}: {check.detail}")
-                    else:
-                        _render_checks(bundle.checks)
+                    # Completed steps — show collapsed summary
+                    if step_state.confirmed:
+                        st.markdown(f"✅ **[{step_def['els_layer']}] {step_def['title']}** — done")
+                        continue
 
-    all_prereqs_passed = (
-        bool(state.nodes)
-        and all(
-            st.session_state["prereq_bundles"].get(
-                n.name, NodePrereqBundle(node_name=n.name, role=n.role, private_ip=n.private_ip)
-            ).all_passed()
-            for n in state.nodes
-        )
-    )
+                    # Locked steps — not yet reached
+                    if idx > current_idx:
+                        st.markdown(f"🔒 **[{step_def['els_layer']}] {step_def['title']}** — complete previous steps first")
+                        continue
 
-    if all_prereqs_passed and state.phase == PHASE_PREREQUISITES:
-        if st.button("✅ Prerequisites passed — proceed to Kubernetes install", key="advance_to_k8s"):
-            state.advance_phase()
-            _save_state()
-            st.rerun()
+                    # Active step
+                    with st.container(border=True):
+                        st.markdown(f"**[{step_def['els_layer']}] Step {idx + 1}: {step_def['title']}**")
+
+                        # Why this matters — beginner tone
+                        st.info(f"**Why Kubernetes needs this:**  \n{step_def['why']}")
+
+                        # Check commands
+                        st.markdown("**Run this on the node to check current state:**")
+                        _render_commands(step_def["check_commands"])
+                        st.caption(step_def["check_hint"])
+
+                        # Did it pass?
+                        passed = st.radio(
+                            f"Result for: {step_def['confirm_question']}",
+                            options=["— select —", "✅ Yes, it passed", "❌ No, it needs fixing"],
+                            key=f"radio_{step_key}",
+                            index=0,
+                        )
+
+                        if passed == "✅ Yes, it passed":
+                            if st.button(f"Confirm and continue", key=f"confirm_{step_key}"):
+                                step_state.confirmed = True
+                                st.session_state["prereq_states"][node.name] = prereq_state
+                                st.rerun()
+
+                        elif passed == "❌ No, it needs fixing":
+                            if step_def["fix_commands"]:
+                                st.markdown("**Run these fix commands on the node:**")
+                                _render_commands(step_def["fix_commands"])
+                                st.caption(step_def["fix_hint"])
+                                st.caption("After running the fix commands, re-run the check command above and select ✅ Yes when it passes.")
+                            else:
+                                st.caption(step_def["fix_hint"])
+
+                        # Stop rendering further steps for this node
+                        break
+
+        if all_prereqs_done and state.phase == PHASE_PREREQUISITES:
+            if st.button("✅ All prerequisites done — proceed to Kubernetes install", key="advance_to_k8s"):
+                state.advance_phase()
+                _save_state()
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # Phase 3 — Kubernetes Installation (L4.5, L5, L7)
@@ -330,68 +319,97 @@ with st.expander(
         cp = state.control_plane()
         workers = state.workers()
 
-        # Step 1 — kubeadm init
+        # Step 0 — install kubelet/kubeadm/kubectl (deferred from phase 2)
         with st.container(border=True):
-            st.markdown("**Step 1 — kubeadm init on control plane**")
-            st.caption(k8s_note("kubeadm init"))
-            st.code(k8s.init_command, language="bash")
-            st.markdown("**Then configure kubectl:**")
-            st.code("\n".join(k8s.kubeconfig_commands), language="bash")
-
-            init_output = st.text_area(
-                "Paste kubeadm init output",
-                key="k8s_init_output",
-                height=150,
-                placeholder="Paste the full output of kubeadm init here...",
+            st.markdown("**Step 1 — Install kubelet, kubeadm, and kubectl on both nodes**")
+            st.info(
+                "**Why Kubernetes needs this (L4.1):**  \n"
+                "kubelet is the node agent that runs on every node and manages pods. "
+                "kubeadm is the tool that bootstraps the cluster. "
+                "kubectl is the command-line tool you use to talk to the cluster. "
+                "We will explore each of these in detail in the L4.1 and L4.5 lessons."
             )
-            if st.button("Parse init output", key="parse_k8s_init"):
-                k8s.init_output = init_output
-                k8s = process_init_output(k8s, state, cp)
-                st.session_state["k8s_bundle"] = k8s
-                _save_state()
-                st.rerun()
+            k8s_install_cmds = [
+                "# Add the Kubernetes apt repository",
+                "sudo apt-get update",
+                "sudo apt-get install -y apt-transport-https ca-certificates curl gpg",
+                "curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg",
+                "echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list",
+                "sudo apt-get update",
+                "# Install kubelet, kubeadm, kubectl and pin their versions",
+                "sudo apt-get install -y kubelet kubeadm kubectl",
+                "sudo apt-mark hold kubelet kubeadm kubectl",
+            ]
+            st.caption("Run these commands on **both nodes** (control plane and worker):")
+            _render_commands(k8s_install_cmds)
+            kubelet_done = st.checkbox("I have installed kubelet, kubeadm, and kubectl on both nodes", key="kubelet_done")
 
-            if k8s.init_checks:
-                _render_checks(k8s.init_checks)
+        # Step 2 — kubeadm init
+        if kubelet_done:
+            with st.container(border=True):
+                st.markdown("**Step 2 — kubeadm init on control plane**")
+                st.info(
+                    f"**Why Kubernetes needs this (L4.5):**  \n"
+                    f"{k8s_note('kubeadm init')}"
+                )
+                st.caption(f"Run this on **{cp.name if cp else 'control plane'}** only:")
+                st.code(k8s.init_command, language="bash")
+                st.markdown("**Then configure kubectl (run on control plane):**")
+                st.code("\n".join(k8s.kubeconfig_commands), language="bash")
 
-        # Step 2 — kubeadm join
+                init_output = st.text_area(
+                    "Paste the full output of kubeadm init here",
+                    key="k8s_init_output",
+                    height=150,
+                    placeholder="Paste kubeadm init output here — we need it to extract the join command for the worker...",
+                )
+                if st.button("Parse init output", key="parse_k8s_init"):
+                    k8s.init_output = init_output
+                    k8s = process_init_output(k8s, state, cp)
+                    st.session_state["k8s_bundle"] = k8s
+                    _save_state()
+                    st.rerun()
+
+                if k8s.init_checks:
+                    _render_checks(k8s.init_checks)
+
+        # Step 3 — kubeadm join
         if k8s.init_done and workers:
             with st.container(border=True):
-                st.markdown(f"**Step 2 — kubeadm join on {workers[0].name}**")
-                st.caption(k8s_note("kubeadm join"))
+                st.markdown(f"**Step 3 — kubeadm join on {workers[0].name}**")
+                st.info(
+                    f"**Why Kubernetes needs this (L4.1):**  \n"
+                    f"{k8s_note('kubeadm join')}"
+                )
+                st.caption(f"Run this on **{workers[0].name}** only:")
                 if k8s.join_command:
                     st.code(k8s.join_command, language="bash")
                 else:
-                    st.info("Join command will appear here after init output is parsed.")
+                    st.info("Join command will appear here after init output is parsed above.")
 
                 join_done = st.checkbox("I have run the join command on the worker", key="join_done")
                 if join_done:
                     k8s.join_done = True
                     st.session_state["k8s_bundle"] = k8s
 
-        # Step 3 — validation
+        # Step 4 — validation
         if k8s.join_done:
             with st.container(border=True):
-                st.markdown("**Step 3 — validate cluster state**")
-                st.caption(k8s_note("node ready"))
+                st.markdown("**Step 4 — validate cluster state**")
+                st.info(
+                    f"**What to expect (L4.5 / L4.3):**  \n"
+                    f"{k8s_note('node ready')}"
+                )
+                st.caption("Run these on the **control plane**:")
                 st.code(f"{build_node_ready_check()}\n{build_pods_check()}", language="bash")
 
-                nodes_output = st.text_area(
-                    "Paste kubectl get nodes output",
-                    key="k8s_nodes_output",
-                    height=100,
-                )
-                pods_output = st.text_area(
-                    "Paste kubectl get pods -A output",
-                    key="k8s_pods_output",
-                    height=100,
-                )
+                nodes_output = st.text_area("Paste kubectl get nodes output", key="k8s_nodes_output", height=100)
+                pods_output = st.text_area("Paste kubectl get pods -A output", key="k8s_pods_output", height=100)
+
                 if st.button("Parse validation output", key="parse_k8s_validation"):
                     k8s.nodes_output = nodes_output
                     k8s.pods_output = pods_output
-                    k8s = process_validation_output(
-                        k8s, [n.name for n in state.nodes]
-                    )
+                    k8s = process_validation_output(k8s, [n.name for n in state.nodes])
                     st.session_state["k8s_bundle"] = k8s
                     st.rerun()
 
@@ -399,9 +417,7 @@ with st.expander(
                     _render_checks(k8s.node_checks + k8s.pod_checks)
                     st.caption(k8s_note("system pods"))
 
-        k8s_ready = k8s.join_done and bool(k8s.pod_checks) and all(
-            c.passed for c in k8s.pod_checks
-        )
+        k8s_ready = k8s.join_done and bool(k8s.pod_checks) and all(c.passed for c in k8s.pod_checks)
         if k8s_ready and state.phase == PHASE_K8S_INSTALL:
             if st.button("✅ Kubernetes installed — proceed to CNI install", key="advance_to_cni"):
                 state.advance_phase()
@@ -425,7 +441,7 @@ with st.expander(
 
     with st.container(border=True):
         st.markdown("**Install commands**")
-        st.caption(cni_note(state.selected_cni))
+        st.info(f"**Why Kubernetes needs this (L4.3):**  \n{cni_note(state.selected_cni)}")
         _render_commands(cni.install_commands)
 
     with st.container(border=True):
@@ -447,12 +463,6 @@ with st.expander(
         if cni.parsed:
             _render_checks(cni.checks)
 
-    if state.selected_cni == CNI_BRIDGE:
-        st.info(
-            "Bridge path — nodes are expected to be NotReady. "
-            "This is the teaching moment: without a CNI, cross-node pod communication fails."
-        )
-
     if cni.all_passed() and state.phase == PHASE_CNI_INSTALL:
         if st.button("✅ CNI installed — cluster is ready", key="advance_to_complete"):
             state.advance_phase()
@@ -464,10 +474,7 @@ with st.expander(
 # ---------------------------------------------------------------------------
 
 if state.phase == PHASE_COMPLETE:
-    st.success(
-        f"🎉 Cluster is ready. "
-        f"Kubernetes is running with {CNI_DESCRIPTIONS[state.selected_cni]}."
-    )
+    st.success(f"🎉 Cluster is ready. Kubernetes is running with {CNI_DESCRIPTIONS[state.selected_cni]}.")
     _cost_reminder()
     st.caption(
         "Next steps: explore the ELS Console to inspect your running cluster, "
@@ -503,27 +510,17 @@ with st.expander("⚠️ Teardown — Reset and Clean", expanded=(state.phase ==
             workers = state.workers()
             cp = state.control_plane()
 
-            # Worker teardown
             if workers:
                 with st.container(border=True):
                     st.markdown(f"**Step 1 — Reset worker: {workers[0].name}**")
                     st.caption(teardown_note("why worker first"))
                     _render_commands(td.worker_commands)
-
-                    worker_reset = st.text_area(
-                        f"Paste kubeadm reset output from {workers[0].name}",
-                        key="worker_reset_output",
-                        height=100,
-                    )
-                    worker_verify = st.text_area(
-                        f"Paste verify output from {workers[0].name}",
-                        key="worker_verify_output",
-                        height=100,
-                        help="Run the verify commands above on the worker node",
-                    )
                     st.code("\n".join(td.verify_commands), language="bash")
 
-                    if st.button(f"Parse worker teardown output", key="parse_worker_teardown"):
+                    worker_reset = st.text_area(f"Paste kubeadm reset output from {workers[0].name}", key="worker_reset_output", height=100)
+                    worker_verify = st.text_area(f"Paste verify output from {workers[0].name}", key="worker_verify_output", height=100)
+
+                    if st.button("Parse worker teardown output", key="parse_worker_teardown"):
                         td.worker_reset_output = worker_reset
                         td.worker_verify_output = worker_verify
                         td = process_worker_teardown(td, workers[0])
@@ -534,22 +531,14 @@ with st.expander("⚠️ Teardown — Reset and Clean", expanded=(state.phase ==
                         _render_checks(td.worker_reset_checks + td.worker_verify_checks)
                         st.caption(teardown_note("cni residuals"))
 
-            # Control plane teardown
             if cp and td.worker_done:
                 with st.container(border=True):
                     st.markdown(f"**Step 2 — Reset control plane: {cp.name}**")
                     _render_commands(td.cp_commands)
+                    st.code("\n".join(td.verify_commands), language="bash")
 
-                    cp_reset = st.text_area(
-                        f"Paste kubeadm reset output from {cp.name}",
-                        key="cp_reset_output",
-                        height=100,
-                    )
-                    cp_verify = st.text_area(
-                        f"Paste verify output from {cp.name}",
-                        key="cp_verify_output",
-                        height=100,
-                    )
+                    cp_reset = st.text_area(f"Paste kubeadm reset output from {cp.name}", key="cp_reset_output", height=100)
+                    cp_verify = st.text_area(f"Paste verify output from {cp.name}", key="cp_verify_output", height=100)
 
                     if st.button("Parse control plane teardown output", key="parse_cp_teardown"):
                         td.cp_reset_output = cp_reset
@@ -570,5 +559,5 @@ with st.expander("⚠️ Teardown — Reset and Clean", expanded=(state.phase ==
                     st.session_state["k8s_bundle"] = None
                     st.session_state["cni_bundle"] = None
                     st.session_state["teardown_bundle"] = None
-                    st.session_state["prereq_bundles"] = {}
+                    st.session_state["prereq_states"] = {}
                     st.rerun()
