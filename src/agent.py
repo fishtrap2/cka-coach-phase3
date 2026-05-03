@@ -1,5 +1,8 @@
 import json
 from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from config import OPENAI_MODEL, MAX_CONTEXT_CHARS
 from schemas import CoachResponse, ELSResult
