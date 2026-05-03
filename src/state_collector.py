@@ -162,19 +162,34 @@ def _safe_kubelet_version() -> str:
 def _safe_kubectl_version_json() -> str:
     """
     Get Kubernetes client/server version JSON if possible.
-
-    This is useful because:
-    - dashboard uses k8s_json in expand views
-    - agent uses it as API/object evidence
+    Only return output if server version is present — client-only JSON
+    is suppressed so it is not surfaced as cluster evidence.
     """
-    return _safe_kubectl("kubectl version -o json")
+    output = _safe_kubectl("kubectl version -o json")
+    if not output:
+        return ""
+    # Suppress if serverVersion key is absent
+    if "serverVersion" not in output:
+        return ""
+    return output
 
 
 def _safe_kubectl_version_short() -> str:
     """
     Get a compact kubectl version view.
+    Only return output if server version is present — client-only output
+    (returned when no cluster is reachable) is suppressed so the dashboard
+    does not show kubectl client version as if it were cluster evidence.
     """
-    return _safe_kubectl("kubectl version")
+    output = _safe_kubectl("kubectl version")
+    if not output:
+        return ""
+    # If only client version is present (no server), suppress it
+    lower = output.lower()
+    if "server version" not in lower and "connection refused" not in lower:
+        if "client version" in lower:
+            return ""
+    return output
 
 
 def _parse_cni_listing(listing: str) -> List[str]:
