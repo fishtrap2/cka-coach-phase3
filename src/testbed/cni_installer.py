@@ -35,7 +35,6 @@ from testbed.testbed_state import (
 # CNI install commands
 # ---------------------------------------------------------------------------
 
-# Calico — installed via Tigera Operator (operator-managed path)
 CALICO_INSTALL_COMMANDS = [
     "# Install the Tigera Operator",
     "kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml",
@@ -47,7 +46,6 @@ CALICO_INSTALL_COMMANDS = [
     "watch kubectl get pods -n calico-system",
 ]
 
-# Cilium — installed via Cilium CLI
 CILIUM_INSTALL_COMMANDS = [
     "# Install the Cilium CLI",
     "CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)",
@@ -61,7 +59,6 @@ CILIUM_INSTALL_COMMANDS = [
     "cilium status --wait",
 ]
 
-# Bridge — no CNI install, just show the broken state
 BRIDGE_OBSERVE_COMMANDS = [
     "# No CNI will be installed — observe the cluster in a CNI-absent state",
     "kubectl get nodes",
@@ -107,6 +104,57 @@ CNI_VALIDATION_COMMANDS = {
 
 
 # ---------------------------------------------------------------------------
+# Shared node readiness helper
+# Handles AWS tag name vs VM hostname mismatch
+# ---------------------------------------------------------------------------
+
+def _nodes_ready_in_output(output: str, node_names: List[str]) -> List[CheckResult]:
+    """
+    Check node readiness from kubectl get nodes output.
+
+    AWS tag names (e.g. cka-coach-cp) may differ from the VM hostname
+    set inside the instance (e.g. control-plane). This helper checks
+    all observed nodes first — if all are Ready it passes regardless
+    of name matching.
+    """
+    lines = output.splitlines()
+    ready_nodes = []
+    not_ready_nodes = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] in ("Ready", "NotReady"):
+            if parts[1] == "Ready":
+                ready_nodes.append(parts[0])
+            else:
+                not_ready_nodes.append(parts[0])
+
+    # All observed nodes are Ready — pass directly
+    if ready_nodes and not not_ready_nodes:
+        return [CheckResult(
+            name="All nodes Ready after CNI",
+            passed=True,
+            detail=f"Ready: {', '.join(ready_nodes)}",
+            els_layer="L4.3",
+            command="kubectl get nodes",
+        )]
+
+    # Fall back to per-expected-name matching with partial match
+    checks = []
+    for name in node_names:
+        matched_ready = any(name in n or n in name for n in ready_nodes)
+        matched_not_ready = any(name in n or n in name for n in not_ready_nodes)
+        checks.append(CheckResult(
+            name=f"Node {name} — Ready after CNI",
+            passed=matched_ready or (not matched_not_ready and bool(ready_nodes)),
+            detail="Ready" if matched_ready else "NotReady — CNI may still be initialising",
+            remediation="Wait 60s and re-check. If still NotReady: kubectl describe node <name>",
+            els_layer="L4.3",
+            command="kubectl get nodes",
+        ))
+    return checks
+
+
+# ---------------------------------------------------------------------------
 # Output parsers
 # ---------------------------------------------------------------------------
 
@@ -114,7 +162,6 @@ def parse_calico_output(output: str, node_names: List[str]) -> List[CheckResult]
     checks = []
     lines = output.splitlines()
 
-    # tigera-operator
     operator_lines = [l for l in lines if "tigera-operator" in l]
     operator_running = any("Running" in l for l in operator_lines)
     checks.append(CheckResult(
@@ -126,7 +173,6 @@ def parse_calico_output(output: str, node_names: List[str]) -> List[CheckResult]
         command="kubectl get pods -n tigera-operator",
     ))
 
-    # calico-node DaemonSet
     calico_node_lines = [l for l in lines if "calico-node" in l]
     calico_node_running = any("Running" in l for l in calico_node_lines)
     checks.append(CheckResult(
@@ -138,7 +184,6 @@ def parse_calico_output(output: str, node_names: List[str]) -> List[CheckResult]
         command="kubectl get pods -n calico-system",
     ))
 
-    # calico-kube-controllers
     controllers_lines = [l for l in lines if "calico-kube-controllers" in l]
     controllers_running = any("Running" in l for l in controllers_lines)
     checks.append(CheckResult(
@@ -150,19 +195,7 @@ def parse_calico_output(output: str, node_names: List[str]) -> List[CheckResult]
         command="kubectl get pods -n calico-system",
     ))
 
-    # nodes ready
-    for name in node_names:
-        node_lines = [l for l in lines if name in l]
-        ready = any("Ready" in l and "NotReady" not in l for l in node_lines)
-        checks.append(CheckResult(
-            name=f"Node {name} — Ready after CNI",
-            passed=ready,
-            detail="Ready" if ready else "NotReady — CNI may still be initialising",
-            remediation="Wait 60s and re-check. If still NotReady: kubectl describe node <name>",
-            els_layer="L4.3",
-            command="kubectl get nodes",
-        ))
-
+    checks.extend(_nodes_ready_in_output(output, node_names))
     return checks
 
 
@@ -170,7 +203,6 @@ def parse_cilium_output(output: str, node_names: List[str]) -> List[CheckResult]
     checks = []
     lines = output.splitlines()
 
-    # cilium DaemonSet pods
     cilium_lines = [l for l in lines if "cilium" in l.lower() and "operator" not in l.lower()]
     cilium_running = any("Running" in l for l in cilium_lines)
     checks.append(CheckResult(
@@ -182,7 +214,6 @@ def parse_cilium_output(output: str, node_names: List[str]) -> List[CheckResult]
         command="kubectl get pods -n kube-system -l k8s-app=cilium",
     ))
 
-    # cilium-operator
     operator_lines = [l for l in lines if "cilium-operator" in l.lower()]
     operator_running = any("Running" in l for l in operator_lines)
     checks.append(CheckResult(
@@ -194,47 +225,31 @@ def parse_cilium_output(output: str, node_names: List[str]) -> List[CheckResult]
         command="kubectl get pods -n kube-system -l name=cilium-operator",
     ))
 
-    # nodes ready
-    for name in node_names:
-        node_lines = [l for l in lines if name in l]
-        ready = any("Ready" in l and "NotReady" not in l for l in node_lines)
-        checks.append(CheckResult(
-            name=f"Node {name} — Ready after CNI",
-            passed=ready,
-            detail="Ready" if ready else "NotReady — Cilium may still be initialising",
-            remediation="Wait 60s and re-check. If still NotReady: kubectl describe node <name>",
-            els_layer="L4.3",
-            command="kubectl get nodes",
-        ))
-
+    checks.extend(_nodes_ready_in_output(output, node_names))
     return checks
 
 
 def parse_bridge_output(output: str, node_names: List[str]) -> List[CheckResult]:
     """
-    For the bridge (no CNI) path, we expect nodes to be NotReady.
-    This is the teaching moment — show the student what a CNI-absent cluster looks like.
+    For the bridge (no CNI) path, NotReady is the expected state.
+    This is the teaching moment.
     """
-    checks = []
     lines = output.splitlines()
-
-    for name in node_names:
-        node_lines = [l for l in lines if name in l]
-        not_ready = any("NotReady" in l for l in node_lines)
-        # Passing here means NotReady — that is the expected state for this path
-        checks.append(CheckResult(
-            name=f"Node {name} — NotReady (expected without CNI)",
-            passed=not_ready,
-            detail=(
-                "NotReady — correct, no CNI is installed. "
-                "Cross-node pod communication will fail."
-            ) if not_ready else "Node shows Ready — unexpected without a CNI plugin",
-            remediation="",
-            els_layer="L4.3",
-            command="kubectl get nodes",
-        ))
-
-    return checks
+    not_ready_nodes = [
+        line.split()[0] for line in lines
+        if len(line.split()) >= 2 and line.split()[1] == "NotReady"
+    ]
+    all_not_ready = bool(not_ready_nodes)
+    return [CheckResult(
+        name="Nodes NotReady (expected without CNI)",
+        passed=all_not_ready,
+        detail=(
+            f"NotReady: {', '.join(not_ready_nodes)} — correct, no CNI installed. "
+            "Cross-node pod communication will fail."
+        ) if all_not_ready else "Nodes appear Ready — unexpected without a CNI plugin",
+        els_layer="L4.3",
+        command="kubectl get nodes",
+    )]
 
 
 CNI_PARSERS = {

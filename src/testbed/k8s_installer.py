@@ -131,6 +131,10 @@ def parse_nodes_output(output: str, expected_nodes: List[str]) -> List[CheckResu
     """
     Parse kubectl get nodes output pasted by the student.
     Checks that all expected nodes are present and Ready.
+
+    Matches on partial name — AWS tag name may differ from the actual
+    hostname set inside the VM (e.g. 'cka-coach-cp' tag vs 'control-plane' hostname).
+    Falls back to reporting what is actually Ready if no name match is found.
     """
     checks = []
     lines = [line for line in output.splitlines() if line.strip()]
@@ -147,20 +151,60 @@ def parse_nodes_output(output: str, expected_nodes: List[str]) -> List[CheckResu
             else:
                 not_ready_nodes.append(f"{name} ({status})")
 
-    for expected in expected_nodes:
-        in_ready = any(expected in node for node in ready_nodes)
-        in_not_ready = any(expected in node for node in not_ready_nodes)
+    # If all observed nodes are Ready, report that directly
+    # regardless of whether names match AWS tags
+    total_observed = len(ready_nodes) + len(not_ready_nodes)
+    if total_observed > 0 and len(not_ready_nodes) == 0:
         checks.append(CheckResult(
-            name=f"Node {expected} — Ready",
-            passed=in_ready,
-            detail=f"Ready" if in_ready else (f"Not ready" if in_not_ready else "Not found in node list"),
-            remediation=(
-                "If NotReady: CNI may not be installed yet — this is expected before CNI install.\n"
-                "If node is missing: check kubeadm join ran successfully on the worker."
-            ),
+            name="All nodes Ready",
+            passed=True,
+            detail=f"Ready: {', '.join(ready_nodes)}",
             els_layer="L4.5",
             command="kubectl get nodes",
         ))
+        return checks
+
+    # Try to match expected names — partial match to handle hostname vs tag differences
+    for expected in expected_nodes:
+        matched_ready = any(
+            expected in node or node in expected
+            for node in ready_nodes
+        )
+        matched_not_ready = any(
+            expected in node or node in expected
+            for node in not_ready_nodes
+        )
+        if matched_ready:
+            checks.append(CheckResult(
+                name=f"Node {expected} — Ready",
+                passed=True,
+                detail="Ready",
+                els_layer="L4.5",
+                command="kubectl get nodes",
+            ))
+        elif matched_not_ready:
+            checks.append(CheckResult(
+                name=f"Node {expected} — Ready",
+                passed=False,
+                detail="Not ready",
+                remediation="Wait 60s and re-check. If still NotReady: kubectl describe node <name>",
+                els_layer="L4.5",
+                command="kubectl get nodes",
+            ))
+        else:
+            # Name not found — report what we actually see
+            checks.append(CheckResult(
+                name=f"Node {expected} — Ready",
+                passed=len(ready_nodes) > 0,
+                detail=(
+                    f"Node name '{expected}' not found in output. "
+                    f"Observed ready nodes: {', '.join(ready_nodes) or 'none'}. "
+                    "Note: AWS tag name may differ from the VM hostname."
+                ),
+                remediation="Check that the VM hostname matches what kubectl get nodes shows.",
+                els_layer="L4.5",
+                command="kubectl get nodes",
+            ))
 
     return checks
 
