@@ -248,10 +248,13 @@ with st.expander(
 
                 with st.expander("Commands to run on this node", expanded=False):
                     st.caption(
-                        "Copy all commands below, paste them into your SSH session on this node, "
-                        "then paste the combined output into the box below."
+                        "**Step 1** — Copy all commands below and run them in your SSH session on this node. "
+                        "Then paste the combined output into the box below and click Parse."
                     )
                     _render_commands(bundle.commands)
+                    st.caption(
+                        f"SSH: `{build_ssh_instruction(node)}`"
+                    )
 
                 with st.expander("ELS teaching notes", expanded=False):
                     for section in ["swap", "kernel modules", "sysctl", "containerd", "kubelet", "runc"]:
@@ -262,7 +265,7 @@ with st.expander(
 
                 paste_key = f"prereq_paste_{node.name}"
                 pasted = st.text_area(
-                    f"Paste output from {node.name}",
+                    f"**Step 2** — Paste output from {node.name}",
                     key=paste_key,
                     height=150,
                     placeholder="Paste the combined output of all commands here...",
@@ -275,7 +278,21 @@ with st.expander(
                     st.rerun()
 
                 if bundle.parsed:
-                    _render_checks(bundle.checks)
+                    passed_checks = [c for c in bundle.checks if c.passed]
+                    failed_checks = [c for c in bundle.checks if not c.passed]
+
+                    if failed_checks:
+                        st.markdown("**Step 3 — Fix these issues then re-run the check commands above**")
+                        for check in failed_checks:
+                            st.error(f"❌ [{check.els_layer}] {check.name}: {check.detail}")
+                            if check.remediation:
+                                st.code(check.remediation, language="bash")
+                        if passed_checks:
+                            st.markdown("**Already passing:**")
+                            for check in passed_checks:
+                                st.markdown(f"✅ [{check.els_layer}] {check.name}: {check.detail}")
+                    else:
+                        _render_checks(bundle.checks)
 
     all_prereqs_passed = (
         bool(state.nodes)

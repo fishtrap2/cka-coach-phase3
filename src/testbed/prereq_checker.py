@@ -177,7 +177,20 @@ def parse_prereq_output(bundle: NodePrereqBundle) -> NodePrereqBundle:
         name=f"{bundle.node_name} — containerd active",
         passed=containerd_active,
         detail=f"containerd: {containerd_output.strip() or 'not found'}",
-        remediation="Install containerd: sudo apt-get install -y containerd && sudo systemctl enable --now containerd",
+        remediation=(
+            "Install containerd:\n"
+            "  sudo apt-get update\n"
+            "  sudo apt-get install -y ca-certificates curl\n"
+            "  sudo install -m 0755 -d /etc/apt/keyrings\n"
+            "  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc\n"
+            "  sudo chmod a+r /etc/apt/keyrings/docker.asc\n"
+            "  echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] "
+            "https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable\" "
+            "| sudo tee /etc/apt/sources.list.d/docker.list > /dev/null\n"
+            "  sudo apt-get update\n"
+            "  sudo apt-get install -y containerd.io\n"
+            "  sudo systemctl enable --now containerd"
+        ),
         els_layer="L3",
         command="systemctl is-active containerd",
     ))
@@ -201,8 +214,17 @@ def parse_prereq_output(bundle: NodePrereqBundle) -> NodePrereqBundle:
         passed=kubelet_found,
         detail=f"kubelet: {kubelet_output.strip() or 'not found'}",
         remediation=(
-            "Install kubelet: sudo apt-get install -y kubelet kubeadm kubectl && "
-            "sudo apt-mark hold kubelet kubeadm kubectl"
+            "Add the Kubernetes apt repository and install kubelet, kubeadm, kubectl:\n"
+            "  sudo apt-get update\n"
+            "  sudo apt-get install -y apt-transport-https ca-certificates curl gpg\n"
+            "  curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key "
+            "| sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg\n"
+            "  echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] "
+            "https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' "
+            "| sudo tee /etc/apt/sources.list.d/kubernetes.list\n"
+            "  sudo apt-get update\n"
+            "  sudo apt-get install -y kubelet kubeadm kubectl\n"
+            "  sudo apt-mark hold kubelet kubeadm kubectl"
         ),
         els_layer="L4.1",
         command="systemctl is-active kubelet",
