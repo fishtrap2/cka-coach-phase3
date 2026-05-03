@@ -37,6 +37,19 @@ def _run_command(command: str) -> str:
         if stdout:
             return stdout
 
+        # Do not return kubectl connection errors as output — they will be
+        # misread by parsers as resource names. Return empty string instead
+        # so the dashboard shows unknown/visibility-limited rather than garbage.
+        if stderr and any(indicator in stderr for indicator in [
+            "connection refused",
+            "couldn't get current server",
+            "dial tcp",
+            "no such host",
+            "Unable to connect",
+            "The connection to the server",
+        ]):
+            return ""
+
         if stderr:
             return stderr
 
