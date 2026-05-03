@@ -7,6 +7,8 @@ from datetime import datetime
 # Allow imports from ../src
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from observer_context import collect_observer_context
+
 from state_collector import collect_state
 from dashboard_presenters import (
     build_node_runtime_layer_evidence,
@@ -36,6 +38,15 @@ st.set_page_config(layout="wide")
 st.title("🧠 CKA Coach — ELS Console")
 st.subheader("Everything Lives Somewhere...")
 st.caption("A layered Kubernetes learning console powered by structured evidence, the ELS model, and AI explanation.")
+
+# --------------------------
+# Observer Context Banner
+# --------------------------
+_observer = collect_observer_context()
+_banner_color = "🟢" if _observer.cluster_reachable else "🟡"
+st.info(
+    f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}"
+)
 
 # --------------------------
 # Retro Styling

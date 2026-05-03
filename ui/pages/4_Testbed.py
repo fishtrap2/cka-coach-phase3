@@ -64,6 +64,7 @@ from testbed.teardown import (
     get_teaching_note as teardown_note,
     TeardownBundle,
 )
+from observer_context import collect_observer_context
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -72,6 +73,15 @@ from testbed.teardown import (
 st.set_page_config(layout="wide", page_title="cka-coach — Testbed")
 st.title("🖥️ Testbed Setup")
 st.caption("Guided two-VM Kubernetes cluster setup and teardown — powered by the ELS model.")
+
+# --------------------------
+# Observer Context Banner
+# --------------------------
+_observer = collect_observer_context()
+_banner_color = "🟢" if _observer.cluster_reachable else "🟡"
+st.info(
+    f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}"
+)
 
 # ---------------------------------------------------------------------------
 # Session state initialisation
