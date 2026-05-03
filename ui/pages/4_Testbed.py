@@ -476,6 +476,55 @@ with st.expander(
 if state.phase == PHASE_COMPLETE:
     st.success(f"🎉 Cluster is ready. Kubernetes is running with {CNI_DESCRIPTIONS[state.selected_cni]}.")
     _cost_reminder()
+
+    st.divider()
+    st.markdown("## 🚀 Next step — run cka-coach from inside the cluster")
+    st.info(
+        "Now that your cluster is running, you can clone cka-coach onto the control plane node "
+        "and run it from there. This gives cka-coach direct access to host-level evidence — "
+        "kubelet, containerd, runc, kernel, and CNI config — so the ELS panel shows real "
+        "observed state instead of visibility-limited."
+    )
+
+    cp = state.control_plane()
+    cp_public_ip = cp.public_ip if cp else "<control-plane-public-ip>"
+
+    with st.container(border=True):
+        st.markdown("**Step 1 — SSH into the control plane**")
+        st.code(f"ssh -i ~/.ssh/aws-instance-cp.pem ubuntu@{cp_public_ip}", language="bash")
+
+    with st.container(border=True):
+        st.markdown("**Step 2 — Clone cka-coach and install dependencies**")
+        st.code(
+            "git clone https://github.com/fishtrap2/cka-coach-phase3.git\n"
+            "cd cka-coach-phase3\n"
+            "python3 -m venv venv\n"
+            "source venv/bin/activate\n"
+            "pip install -r requirements.txt",
+            language="bash",
+        )
+
+    with st.container(border=True):
+        st.markdown("**Step 3 — Set your OpenAI API key**")
+        st.warning(
+            "⚠️ Do not write your API key to any file on this VM. "
+            "Set it as an environment variable in your SSH session only. "
+            "See issue #5 for the future IAM role approach that removes the need for this."
+        )
+        st.code("export OPENAI_API_KEY=<your-openai-api-key>", language="bash")
+
+    with st.container(border=True):
+        st.markdown("**Step 4 — Run cka-coach with host evidence enabled**")
+        st.code(
+            "streamlit run ui/dashboard.py --allow-host-evidence --server.address=0.0.0.0",
+            language="bash",
+        )
+        st.caption(
+            f"Then open: http://{cp_public_ip}:8501 in your browser.  \n"
+            "The observer banner should show: 🟢 Observer: Linux node (cka-coach-cp) — connected to cluster.  \n"
+            "The ELS panel should now show real observed state for L1 through L4.3."
+        )
+
     st.caption(
         "Next steps: explore the ELS Console to inspect your running cluster, "
         "or use the Teardown section below to reset and try a different CNI."
