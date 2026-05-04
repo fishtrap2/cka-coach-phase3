@@ -37,6 +37,12 @@ from testbed.prereq_checker import (
     build_ssh_instruction,
     build_node_prereq_state,
 )
+from testbed.phase_evidence import (
+    collect_phase_evidence,
+    infer_likely_phase,
+    EVIDENCE_OBSERVED,
+    EVIDENCE_STUDENT_CONFIRMED,
+)
 from testbed.k8s_installer import (
     build_k8s_install_bundle,
     process_init_output,
@@ -133,21 +139,70 @@ def _cost_reminder():
 # Phase indicator + CNI selector
 # ---------------------------------------------------------------------------
 
-top_col1, top_col2 = st.columns([2, 1])
-with top_col1:
-    _phase_progress()
-with top_col2:
-    selected_cni = st.selectbox(
-        "CNI path",
-        options=CNI_OPTIONS,
-        index=CNI_OPTIONS.index(state.selected_cni),
-        format_func=lambda cni: CNI_DESCRIPTIONS[cni],
-        key="cni_selector",
+# CNI selector
+selected_cni = st.selectbox(
+    "CNI path",
+    options=CNI_OPTIONS,
+    index=CNI_OPTIONS.index(state.selected_cni),
+    format_func=lambda cni: CNI_DESCRIPTIONS[cni],
+    key="cni_selector",
+)
+if selected_cni != state.selected_cni:
+    state.selected_cni = selected_cni
+    st.session_state["cni_bundle"] = None
+    _save_state()
+
+# ---------------------------------------------------------------------------
+# Evidence-based phase status strip
+# ---------------------------------------------------------------------------
+
+if "phase_evidence" not in st.session_state:
+    st.session_state["phase_evidence"] = None
+
+cp = state.control_plane()
+cp_public_ip = cp.public_ip if cp else ""
+
+# On page load, hint if cluster already looks deployed
+if st.session_state["phase_evidence"] is None:
+    quick_evidence = collect_phase_evidence(
+        state.nodes,
+        st.session_state.get("prereq_states", {}),
+        cp_public_ip,
     )
-    if selected_cni != state.selected_cni:
-        state.selected_cni = selected_cni
-        st.session_state["cni_bundle"] = None
-        _save_state()
+    observed_count = sum(
+        1 for e in quick_evidence
+        if e.status in (EVIDENCE_OBSERVED, EVIDENCE_STUDENT_CONFIRMED)
+    )
+    if observed_count >= 3:
+        st.session_state["phase_evidence"] = quick_evidence
+        inferred = infer_likely_phase(quick_evidence)
+        if inferred != state.phase:
+            state.phase = inferred
+            _save_state()
+
+evidence = st.session_state["phase_evidence"]
+
+with st.container(border=True):
+    ev_cols = st.columns([3, 1])
+    with ev_cols[0]:
+        if evidence:
+            for ev in evidence:
+                st.markdown(f"{ev.icon} **{ev.label}** — {ev.detail}")
+        else:
+            st.caption("Run evidence check to see observed cluster state.")
+    with ev_cols[1]:
+        if st.button("🔍 Run evidence check", key="run_evidence"):
+            with st.spinner("Checking cluster state..."):
+                st.session_state["phase_evidence"] = collect_phase_evidence(
+                    state.nodes,
+                    st.session_state.get("prereq_states", {}),
+                    cp_public_ip,
+                )
+                inferred = infer_likely_phase(st.session_state["phase_evidence"])
+                if inferred != state.phase:
+                    state.phase = inferred
+                    _save_state()
+                st.rerun()
 
 st.divider()
 
@@ -477,7 +532,103 @@ with st.expander(
             st.rerun()
 
 # ---------------------------------------------------------------------------
-# Phase 5 — Complete
+# Phase 5 — Deploy cka-coach to the cluster (L8)
+# ---------------------------------------------------------------------------
+
+with st.expander(
+    f"{'✅' if evidence and any(e.phase_id == 'cka_coach' and e.status == EVIDENCE_OBSERVED for e in evidence) else '🔲'} "
+    f"Phase 5 — L8 — Deploy cka-coach to the cluster",
+    expanded=(state.phase == PHASE_COMPLETE),
+):
+    st.caption(
+        "Move cka-coach from your Mac into the cluster. "
+        "Once running on the control plane node, cka-coach can directly observe "
+        "L1 through L8 — kernel, runtime, kubelet, CNI, and pods — instead of "
+        "being limited to what it can see from outside."
+    )
+    st.info(
+        "💡 **ELS teaching moment (L8):**  \n"
+        "Right now cka-coach runs on your Mac and can only see what the AWS API and kubectl expose. "
+        "When it runs on the control plane node it becomes a workload in the cluster — "
+        "an application at L8 with direct access to the host at L1. "
+        "The ELS panel will go from mostly 🟡 to mostly 🟢. "
+        "This is the first capstone: you built the cluster, now deploy your first workload into it."
+    )
+
+    cp = state.control_plane()
+    cp_public_ip = cp.public_ip if cp else ""
+    cp_private_ip = cp.private_ip if cp else ""
+    cp_name = cp.name if cp else "cka-coach-cp"
+
+    with st.container(border=True):
+        st.markdown("**Step 1 — SSH into the control plane**")
+        st.code(
+            f"ssh -i ~/.ssh/aws-instance-cp.pem ubuntu@{cp_public_ip or '<control-plane-public-ip>'}",
+            language="bash",
+        )
+
+    with st.container(border=True):
+        st.markdown("**Step 2 — Clone cka-coach and install dependencies**")
+        st.code(
+            "git clone https://github.com/fishtrap2/cka-coach-phase3.git\n"
+            "cd cka-coach-phase3\n"
+            "python3 -m venv venv\n"
+            "source venv/bin/activate\n"
+            "pip install -r requirements.txt",
+            language="bash",
+        )
+
+    with st.container(border=True):
+        st.markdown("**Step 3 — Set your OpenAI API key**")
+        st.warning(
+            "⚠️ Set the key as an environment variable in your SSH session only. "
+            "Do not write it to any file on the VM. "
+            "See issue #5 for the future IAM role approach."
+        )
+        st.code("export OPENAI_API_KEY=<your-openai-api-key>", language="bash")
+
+    with st.container(border=True):
+        st.markdown("**Step 4 — Open port 8501 in your AWS security group**")
+        st.caption(
+            "Streamlit runs on port 8501. You need to allow inbound TCP 8501 "
+            "from your Mac's IP in the security group."
+        )
+        st.code(
+            f"# Find your Mac's public IP\n"
+            f"curl -s ifconfig.me\n\n"
+            f"# Then in AWS Console or CLI, add inbound rule:\n"
+            f"# Type: Custom TCP | Port: 8501 | Source: <your-mac-ip>/32",
+            language="bash",
+        )
+
+    with st.container(border=True):
+        st.markdown("**Step 5 — Run cka-coach with host evidence enabled**")
+        st.code(
+            "streamlit run ui/dashboard.py --allow-host-evidence --server.address=0.0.0.0",
+            language="bash",
+        )
+        if cp_public_ip:
+            st.success(
+                f"🟢 Open in your browser: http://{cp_public_ip}:8501  \n"
+                "The observer banner should show: 🟢 Observer: Linux node — connected to cluster  \n"
+                "The ELS panel should now show real observed state for L1 through L4.3."
+            )
+        else:
+            st.caption("Run AWS validation first to get the control plane public IP.")
+
+    st.divider()
+    st.markdown("**Verify cka-coach is running on the cluster**")
+    if st.button("🔍 Check if cka-coach is reachable", key="check_cka_coach"):
+        with st.spinner(f"Checking http://{cp_public_ip}:8501 ..."):
+            from testbed.phase_evidence import check_cka_coach_phase
+            ev = check_cka_coach_phase(cp_public_ip)
+            if ev.status == EVIDENCE_OBSERVED:
+                st.success(ev.detail)
+            else:
+                st.warning(ev.detail)
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Complete (old)
 # ---------------------------------------------------------------------------
 
 if state.phase == PHASE_COMPLETE:
