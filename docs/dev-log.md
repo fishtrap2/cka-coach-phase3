@@ -2,6 +2,55 @@
 
 ---
 
+## 2026-05-03 — feature/testbed-setup live testing and extensions (Amazon Q Developer)
+
+### AI-DLC phase
+Construction (extended) — live testing against real AWS environment revealed gaps
+not covered by the original inception brief. All changes are tracked in the
+inception brief post-inception changes table.
+
+### What we did
+- Ran the full testbed workflow against real AWS instances (`cka-coach-cp`, `cka-coach-worker`)
+- Fixed fabricated ELS data when no cluster present (kubectl error output filter)
+- Fixed misleading kubectl client-only version shown without cluster
+- Redesigned Phase 2 as individual guided steps with beginner-friendly tone
+- Deferred kubelet install to Phase 3 (not needed until kubeadm init)
+- Added containerd CRI plugin check (real failure hit during testing)
+- Fixed node name mismatch between AWS tags and VM hostnames
+- Removed step locking in Phase 2 — students can move freely
+- Added Mark all complete / Undo buttons per step
+- Replaced button-click progress bar with evidence-based phase status strip
+- Added Phase 5 — deploy cka-coach to cluster (L8 capstone)
+- Added `phase_evidence.py` module for observable phase inference
+- Added observer context banner to both dashboard and testbed pages
+- Raised GitHub issues #5, #6, #7 during session
+- Added learning moments: venv confusion, kubectl error misread, containerd CRI disabled
+- Added secrets and credentials rules file
+- Added AWS IAM user `cka-coach-admin`, configured AWS CLI
+
+### Current AI-DLC status
+- Inception: ✅ approved
+- Construction: ✅ complete (with post-inception extensions)
+- Operations: 🔲 in progress — PR not yet raised, full end-to-end test not yet complete
+
+### What remains before PR
+- [ ] Complete Phase 5 test (deploy cka-coach to control plane)
+- [ ] Test teardown end to end
+- [ ] Update README with testbed feature
+- [ ] Save session chat log
+- [ ] Raise PR
+
+### Key commits this session
+- `664b2b8` — observer context banner
+- `88d8b3e` — kubectl error filter
+- `c57f3f7` — Phase 2 redesign
+- `3875b29` — containerd CRI step
+- `76f2c0d` — node name mismatch fix
+- `1c1447e` — step locking removed
+- `6eba5a2` — evidence-based phase strip + Phase 5
+
+---
+
 ## 2026-04-29 — feature/testbed-setup construction complete (Amazon Q Developer)
 
 ### What we did
