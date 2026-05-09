@@ -59,10 +59,12 @@ check_port() {
             covered=true; break
         fi
     done <<< "$ALL_RULES"
+    local proto_upper
+    proto_upper=$(echo "$proto" | tr '[:lower:]' '[:upper:]')
     if $covered; then
-        echo -e "  ${GREEN}✅ ${proto^^} ${port}${RESET}  — ${desc}"
+        echo -e "  ${GREEN}\u2705 ${proto_upper} ${port}${RESET}  \u2014 ${desc}"
     else
-        echo -e "  ${RED}❌ ${proto^^} ${port}${RESET}  — ${desc}  ${RED}(NOT COVERED — kubeadm may fail)${RESET}"
+        echo -e "  ${RED}\u274c ${proto_upper} ${port}${RESET}  \u2014 ${desc}  ${RED}(NOT COVERED \u2014 kubeadm may fail)${RESET}"
     fi
 }
 
@@ -241,10 +243,11 @@ for sg in data['SecurityGroups']:
             from_p=$(echo "$line" | awk '{print $2}')
             to_p=$(echo "$line"   | awk '{print $3}')
             src=$(echo "$line"    | awk '{print $4}')
+            proto_upper=$(echo "$proto" | tr '[:lower:]' '[:upper:]')
             if [[ "$proto" == "-1" ]]; then
                 printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "All traffic" "All" "All" "${src}"
             else
-                printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "${proto^^}" "${from_p}" "${to_p}" "${src}"
+                printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "${proto_upper}" "${from_p}" "${to_p}" "${src}"
             fi
         done
 
