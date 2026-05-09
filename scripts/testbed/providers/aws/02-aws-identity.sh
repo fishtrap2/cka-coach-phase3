@@ -86,7 +86,9 @@ check_port() {
         rule_proto=$(echo "$line" | awk '{print $1}')
         rule_from=$(echo "$line"  | awk '{print $2}')
         rule_to=$(echo "$line"    | awk '{print $3}')
-        # -1 means all traffic
+        # -1 means all protocols and all ports in AWS security group rules.
+        # It is a sentinel value meaning 'any' — not a real protocol number.
+        # A rule with protocol -1 covers every Kubernetes port automatically.
         if [[ "$rule_proto" == "-1" ]]; then
             covered=true; break
         fi
@@ -255,6 +257,8 @@ else
         echo "  Note: AWS Security Groups are STATEFUL and instance-level only."
         echo "  They do not show NACLs (subnet-level) — default VPC NACLs allow all traffic."
         echo "  Source Port is not a concept in SG rules — only destination port and source are specified."
+        echo "  Protocol -1 means 'all protocols and all ports' — it is a sentinel value meaning any/wildcard,"
+        echo "  not a real protocol number. A single -1 rule covers every port Kubernetes needs."
         echo ""
         echo "  Inbound rules (what traffic AWS allows IN to instances in this group):"
         echo "  ┌──────────┬──────────────────────────┬────────────────────────────────────┬──────────────────────────────────┐"
@@ -288,7 +292,7 @@ for sg in data['SecurityGroups']:
             if [[ "$proto" == "-1" ]]; then
                 src_label="${src}"
                 port_label="All ports"
-                desc="All traffic allowed (covers all K8s ports)"
+                desc="-1 = all protocols/ports (any traffic allowed from this source)"
             elif [[ "$from_p" == "$to_p" ]]; then
                 port_label=$(port_label "$from_p" "$proto")
                 desc=$(port_description "$from_p" "$proto")
