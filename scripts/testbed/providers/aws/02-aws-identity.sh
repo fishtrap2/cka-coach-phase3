@@ -39,6 +39,33 @@ section() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 }
 
+check_port() {
+    # Check if a required K8s port is covered by any inbound rule
+    # $1 = protocol (tcp/udp), $2 = port, $3 = description
+    local proto=$1 port=$2 desc=$3
+    local covered=false
+    while IFS= read -r line; do
+        local rule_proto rule_from rule_to
+        rule_proto=$(echo "$line" | awk '{print $1}')
+        rule_from=$(echo "$line"  | awk '{print $2}')
+        rule_to=$(echo "$line"    | awk '{print $3}')
+        # -1 means all traffic
+        if [[ "$rule_proto" == "-1" ]]; then
+            covered=true; break
+        fi
+        if [[ "$rule_proto" == "$proto" ]] && \
+           [[ "$rule_from" != "None" ]] && [[ "$rule_to" != "None" ]] && \
+           [[ "$port" -ge "$rule_from" ]] && [[ "$port" -le "$rule_to" ]]; then
+            covered=true; break
+        fi
+    done <<< "$ALL_RULES"
+    if $covered; then
+        echo -e "  ${GREEN}✅ ${proto^^} ${port}${RESET}  — ${desc}"
+    else
+        echo -e "  ${RED}❌ ${proto^^} ${port}${RESET}  — ${desc}  ${RED}(NOT COVERED — kubeadm may fail)${RESET}"
+    fi
+}
+
 echo -e "${BOLD}"
 echo "============================================================"
 echo " L0 — AWS Identity and Testbed Instance Evidence"
@@ -54,30 +81,74 @@ if ! command -v aws &>/dev/null; then
     exit 1
 fi
 
-# --- Operator identity ---
-# Who is running these commands? This is the IAM identity of the operator —
-# the person or role that has permission to create and manage the testbed.
-# Never use root credentials for this. Use a dedicated IAM user (e.g. cka-coach-admin).
+# ---------------------------------------------------------------------------
+# Operator identity
+# ---------------------------------------------------------------------------
 section "Operator identity — aws sts get-caller-identity (L0)"
 echo -e "${YELLOW}Why: Before touching any infrastructure, confirm who you are.${RESET}"
 echo -e "${YELLOW}This prevents accidental changes to the wrong AWS account.${RESET}"
 echo ""
-aws sts get-caller-identity
 
-# --- Region ---
+IDENTITY=$(aws sts get-caller-identity)
+echo "$IDENTITY"
+echo ""
+
+ACCOUNT=$(echo "$IDENTITY" | python3 -c "import sys,json; print(json.load(sys.stdin)['Account'])" 2>/dev/null || echo "unknown")
+ARN=$(echo "$IDENTITY"     | python3 -c "import sys,json; print(json.load(sys.stdin)['Arn'])"     2>/dev/null || echo "unknown")
+USERID=$(echo "$IDENTITY"  | python3 -c "import sys,json; print(json.load(sys.stdin)['UserId'])"  2>/dev/null || echo "unknown")
+
+echo -e "${YELLOW}Reading the output:${RESET}"
+echo ""
+echo "  UserId:  ${USERID}"
+echo "  └ The unique ID of the IAM user or role making this call."
+echo "    In the AWS Console: IAM → Users → your user → Summary → User ARN."
+echo ""
+echo "  Account: ${ACCOUNT}"
+echo "  └ Your AWS account number. Every resource in AWS belongs to an account."
+echo "    In the AWS Console: top-right menu → account name → Account ID."
+echo "    This number appears in all ARNs and is how AWS bills you."
+echo ""
+echo "  Arn:     ${ARN}"
+echo "  └ Amazon Resource Name — the globally unique identifier for this IAM identity."
+echo "    ARN format: arn:partition:service:region:account-id:resource"
+echo "    Example:    arn:aws:iam::208790449186:user/cka-coach-admin"
+echo "                         ^^^  ^^^          ^^^^^^^^^^^^^^^^^^^"
+echo "                         |    |            resource (user/cka-coach-admin)"
+echo "                         |    service (iam)"
+echo "                         partition (aws = standard commercial)"
+echo ""
+echo "    In the AWS Console: IAM → Users → your user → ARN field."
+echo "    Every AWS resource has an ARN — EC2 instances, VPCs, security groups,"
+echo "    S3 buckets, IAM roles. ARNs are how IAM policies refer to resources."
+
+# ---------------------------------------------------------------------------
+# Region
+# ---------------------------------------------------------------------------
 section "Active region (L0)"
 REGION=$(aws configure get region 2>/dev/null || echo "not configured")
 echo "Active region: ${REGION}"
 echo ""
-echo -e "${YELLOW}Why: All resources (instances, VPCs, security groups) are region-scoped.${RESET}"
-echo -e "${YELLOW}If your instances are not showing up, you may be in the wrong region.${RESET}"
+echo "  └ All resources (instances, VPCs, security groups) are region-scoped."
+echo "    In the AWS Console: top-right dropdown (e.g. Canada (Central) = ca-central-1)."
+echo "    If your instances are not showing up, you may be in the wrong region."
 
-# --- Testbed instances ---
-# The AWS API view of your two VMs. This is what the cloud control plane knows
-# about your instances — not what the instances know about themselves.
+# ---------------------------------------------------------------------------
+# Testbed instances
+# ---------------------------------------------------------------------------
 section "Testbed instances — aws ec2 describe-instances (L0)"
 echo -e "${YELLOW}Why: This is the authoritative L0 view of your testbed.${RESET}"
 echo -e "${YELLOW}It shows instance state, type, IPs, AZ, and tags from the AWS perspective.${RESET}"
+echo ""
+echo "  Name          — the Name tag you set when launching (cka-coach-cp / cka-coach-worker)"
+echo "  InstanceId    — unique VM identifier (same as instance-id in the metadata service)"
+echo "  State         — running / stopped / terminated"
+echo "  Type          — hardware profile (t3.large = 2 vCPU, 8GB RAM)"
+echo "  AZ            — which physical data centre within the region"
+echo "  PrivateIP     — VPC address — what Kubernetes uses for node-to-node traffic"
+echo "  PublicIP      — internet-facing address — how you SSH in (changes on stop/start)"
+echo "  VPC           — the virtual network both nodes share"
+echo "  Subnet        — the subnet within the VPC"
+echo "  KeyPair       — the SSH key pair used to access this instance"
 echo ""
 
 aws ec2 describe-instances \
@@ -99,23 +170,30 @@ aws ec2 describe-instances \
         echo "Either the instances don't exist yet or they are in a different region."
     }
 
-# --- VPC ---
-# The virtual network your instances live in.
+# ---------------------------------------------------------------------------
+# VPC
+# ---------------------------------------------------------------------------
 section "VPC (L0)"
-echo -e "${YELLOW}Why: All inter-node traffic in Kubernetes travels through this VPC.${RESET}"
-echo -e "${YELLOW}The VPC CIDR must not overlap with your pod CIDR.${RESET}"
+echo "  └ The Virtual Private Cloud — the isolated network your instances live in."
+echo "    In the AWS Console: VPC → Your VPCs."
+echo "    All inter-node Kubernetes traffic travels through this VPC."
+echo "    The VPC CIDR (e.g. 172.31.0.0/16) must not overlap with your pod CIDR"
+echo "    (e.g. 192.168.0.0/16 for Calico) or routing will break silently."
 echo ""
 
 aws ec2 describe-vpcs \
     --query 'Vpcs[*].{VpcId:VpcId,CIDR:CidrBlock,Default:IsDefault,State:State}' \
     --output table
 
-# --- Security groups ---
-# The firewall rules that control what traffic can reach your instances.
-# Kubernetes requires specific ports to be open between nodes.
+# ---------------------------------------------------------------------------
+# Security groups — with K8s port readiness check
+# ---------------------------------------------------------------------------
 section "Security groups on testbed instances (L0)"
-echo -e "${YELLOW}Why: If the wrong ports are blocked, kubeadm join will fail silently.${RESET}"
-echo -e "${YELLOW}Required ports: 6443 (API), 2379-2380 (etcd), 10250 (kubelet), 4789 UDP (VXLAN).${RESET}"
+echo "  └ The firewall rules applied to your instances at the AWS network level."
+echo "    In the AWS Console: EC2 → Security Groups, or EC2 → Instances → Security tab."
+echo "    These rules are enforced by AWS before packets even reach the Linux kernel."
+echo "    If required Kubernetes ports are blocked here, kubeadm will fail silently"
+echo "    or nodes will appear to join but never become Ready."
 echo ""
 
 SG_IDS=$(aws ec2 describe-instances \
@@ -127,20 +205,69 @@ if [[ -z "${SG_IDS}" ]]; then
     echo "No security groups found — run AWS validation first."
 else
     for SG in ${SG_IDS}; do
-        echo "Security group: ${SG}"
-        aws ec2 describe-security-groups \
-            --group-ids "${SG}" \
-            --query 'SecurityGroups[*].{
-                Name:GroupName,
-                InboundRules:IpPermissions[*].{
-                    Protocol:IpProtocol,
-                    FromPort:FromPort,
-                    ToPort:ToPort,
-                    CIDR:IpRanges[*].CidrIp
-                }
-            }' \
-            --output table
+        SG_DETAIL=$(aws ec2 describe-security-groups --group-ids "${SG}" 2>/dev/null)
+        SG_NAME=$(echo "$SG_DETAIL" | python3 -c \
+            "import sys,json; sgs=json.load(sys.stdin)['SecurityGroups']; print(sgs[0]['GroupName'])" \
+            2>/dev/null || echo "unknown")
+
         echo ""
+        echo -e "${BOLD}Security group: ${SG} (${SG_NAME})${RESET}"
+        echo ""
+        echo "  Inbound rules:"
+        echo "  ┌─────────────┬───────────┬───────────┬─────────────────────┐"
+        echo "  │ Protocol    │ From Port │ To Port   │ Source CIDR         │"
+        echo "  ├─────────────┼───────────┼───────────┼─────────────────────┤"
+
+        # Extract rules for display and port checking
+        ALL_RULES=$(echo "$SG_DETAIL" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for sg in data['SecurityGroups']:
+    for rule in sg.get('IpPermissions', []):
+        proto = rule.get('IpProtocol', '-1')
+        from_p = str(rule.get('FromPort', 'All'))
+        to_p = str(rule.get('ToPort', 'All'))
+        cidrs = [r.get('CidrIp','') for r in rule.get('IpRanges',[])]
+        sg_sources = [p.get('GroupId','') for p in rule.get('UserIdGroupPairs',[])]
+        sources = cidrs + sg_sources
+        for src in sources:
+            print(f'{proto} {from_p} {to_p} {src}')
+        if not sources:
+            print(f'{proto} {from_p} {to_p} (any)')
+" 2>/dev/null || echo "")
+
+        echo "$ALL_RULES" | while IFS= read -r line; do
+            proto=$(echo "$line" | awk '{print $1}')
+            from_p=$(echo "$line" | awk '{print $2}')
+            to_p=$(echo "$line"   | awk '{print $3}')
+            src=$(echo "$line"    | awk '{print $4}')
+            if [[ "$proto" == "-1" ]]; then
+                printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "All traffic" "All" "All" "${src}"
+            else
+                printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "${proto^^}" "${from_p}" "${to_p}" "${src}"
+            fi
+        done
+
+        echo "  └─────────────┴───────────┴───────────┴─────────────────────┘"
+
+        # --- Kubernetes port readiness check ---
+        echo ""
+        echo -e "${BOLD}  Kubernetes port readiness check:${RESET}"
+        echo "  These are the ports Kubernetes requires between nodes."
+        echo "  A missing port here will cause silent failures during cluster setup."
+        echo ""
+        check_port tcp  6443  "Kubernetes API server (kubeadm init / kubectl)"
+        check_port tcp  2379  "etcd client API (control plane only)"
+        check_port tcp  2380  "etcd peer communication (control plane only)"
+        check_port tcp  10250 "kubelet API (required on all nodes)"
+        check_port tcp  10257 "kube-controller-manager"
+        check_port tcp  10259 "kube-scheduler"
+        check_port tcp  179   "Calico BGP (if using BGP mode)"
+        check_port udp  4789  "VXLAN overlay (Calico VXLAN / Cilium)"
+        check_port tcp  8501  "cka-coach Streamlit UI"
+        echo ""
+        echo "  Note: if you see 'All traffic' in the rules above, all ports are covered."
+        echo "  In the AWS Console: EC2 → Security Groups → ${SG} → Inbound rules tab."
     done
 fi
 
