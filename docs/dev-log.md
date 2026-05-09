@@ -34,11 +34,14 @@ inception brief post-inception changes table.
 - Operations: 🔲 in progress — PR not yet raised, full end-to-end test not yet complete
 
 ### What remains before PR
-- [ ] Complete Phase 5 test (deploy cka-coach to control plane)
+- [ ] Complete Phase 5 test — deploy cka-coach to control plane, verify ELS panel goes 🟢
 - [ ] Test teardown end to end
 - [ ] Update README with testbed feature
 - [ ] Save session chat log
 - [ ] Raise PR
+
+### Chat log
+`docs/aidlc/chats/2026-05-03-testbed-testing-and-scripts.md`
 
 ### Key commits this session
 - `664b2b8` — observer context banner
