@@ -39,6 +39,43 @@ section() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 }
 
+# ---------------------------------------------------------------------------
+# Well-known port descriptions
+# ---------------------------------------------------------------------------
+port_description() {
+    local port=$1 proto=$2
+    case "${proto}:${port}" in
+        tcp:22)    echo "SSH — remote terminal access" ;;
+        tcp:80)    echo "HTTP — web traffic" ;;
+        tcp:443)   echo "HTTPS — secure web traffic" ;;
+        tcp:6443)  echo "Kubernetes API server" ;;
+        tcp:2379)  echo "etcd client API" ;;
+        tcp:2380)  echo "etcd peer communication" ;;
+        tcp:10250) echo "kubelet API" ;;
+        tcp:10257) echo "kube-controller-manager" ;;
+        tcp:10259) echo "kube-scheduler" ;;
+        tcp:179)   echo "Calico BGP" ;;
+        tcp:8501)  echo "cka-coach Streamlit UI" ;;
+        tcp:8080)  echo "HTTP alternate" ;;
+        tcp:8443)  echo "HTTPS alternate" ;;
+        udp:4789)  echo "VXLAN overlay (Calico/Cilium)" ;;
+        udp:8472)  echo "Flannel VXLAN" ;;
+        udp:53)    echo "DNS" ;;
+        tcp:53)    echo "DNS" ;;
+        *)         echo "" ;;
+    esac
+}
+
+port_label() {
+    local port=$1 proto=$2
+    local desc
+    desc=$(port_description "$port" "$proto")
+    if [[ -n "$desc" ]]; then
+        echo "${port} (${desc})"
+    else
+        echo "${port}"
+    fi
+}
 check_port() {
     # Check if a required K8s port is covered by any inbound rule
     # $1 = protocol (tcp/udp), $2 = port, $3 = description
@@ -215,10 +252,14 @@ else
         echo ""
         echo -e "${BOLD}Security group: ${SG} (${SG_NAME})${RESET}"
         echo ""
-        echo "  Inbound rules:"
-        echo "  ┌─────────────┬───────────┬───────────┬─────────────────────┐"
-        echo "  │ Protocol    │ From Port │ To Port   │ Source CIDR         │"
-        echo "  ├─────────────┼───────────┼───────────┼─────────────────────┤"
+        echo "  Note: AWS Security Groups are STATEFUL and instance-level only."
+        echo "  They do not show NACLs (subnet-level) — default VPC NACLs allow all traffic."
+        echo "  Source Port is not a concept in SG rules — only destination port and source are specified."
+        echo ""
+        echo "  Inbound rules (what traffic AWS allows IN to instances in this group):"
+        echo "  ┌──────────┬──────────────────────────┬────────────────────────────────────┬──────────────────────────────────┐"
+        echo "  │ Protocol │ Source                   │ Destination Port / Service         │ Description                      │"
+        echo "  ├──────────┼──────────────────────────┼────────────────────────────────────┼──────────────────────────────────┤"
 
         # Extract rules for display and port checking
         ALL_RULES=$(echo "$SG_DETAIL" | python3 -c "
@@ -245,13 +286,23 @@ for sg in data['SecurityGroups']:
             src=$(echo "$line"    | awk '{print $4}')
             proto_upper=$(echo "$proto" | tr '[:lower:]' '[:upper:]')
             if [[ "$proto" == "-1" ]]; then
-                printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "All traffic" "All" "All" "${src}"
+                src_label="${src}"
+                port_label="All ports"
+                desc="All traffic allowed (covers all K8s ports)"
+            elif [[ "$from_p" == "$to_p" ]]; then
+                port_label=$(port_label "$from_p" "$proto")
+                desc=$(port_description "$from_p" "$proto")
+                src_label="${src}"
             else
-                printf "  │ %-11s │ %-9s │ %-9s │ %-19s │\n" "${proto_upper}" "${from_p}" "${to_p}" "${src}"
+                port_label="${from_p}-${to_p}"
+                desc="port range"
+                src_label="${src}"
             fi
+            printf "  │ %-8s │ %-24s │ %-34s │ %-32s │\n" \
+                "${proto_upper}" "${src_label}" "${port_label}" "${desc}"
         done
 
-        echo "  └─────────────┴───────────┴───────────┴─────────────────────┘"
+        echo "  └──────────┴──────────────────────────┴────────────────────────────────────┴──────────────────────────────────┘"
 
         # --- Kubernetes port readiness check ---
         echo ""
