@@ -109,12 +109,15 @@ class L0InstanceMetadata:
     region: str = ""
     private_ip: str = ""
     public_ip: str = ""
-    # Cost
+    # Cost for this node
     uptime_hours: float = 0.0
     hourly_rate_usd: float = 0.0
     estimated_cost_usd: float = 0.0
     projected_8h_cost_usd: float = 0.0
     cost_note: str = ""
+    # All testbed nodes (from AWS API)
+    all_nodes: List[dict] = field(default_factory=list)
+    total_cost_usd: float = 0.0
     # Evidence quality
     observed: bool = False
     note: str = ""
@@ -143,40 +146,68 @@ def _collect_aws_metadata() -> L0InstanceMetadata:
     private_ip     = meta("local-ipv4")
     public_ip      = meta("public-ipv4")
 
-    # Launch time for cost calculation
-    ok, launch_raw = _curl(
-        "http://169.254.169.254/latest/meta-data/",
-        headers=[f"X-aws-ec2-metadata-token: {token}"],
-    )
-
-    # Try to get launch time via AWS CLI (available if IAM role attached)
-    uptime_hours = 0.0
     hourly_rate  = HOURLY_RATES.get(instance_type, 0.0)
+    uptime_hours = 0.0
     cost         = 0.0
     cost_note    = ""
+    all_nodes: List[dict] = []
+    total_cost   = 0.0
+    projected_8h = 0.0
 
+    # Query all testbed instances via AWS API (IAM role required)
     try:
         r = subprocess.run(
             ["aws", "ec2", "describe-instances",
-             "--filters", f"Name=private-ip-address,Values={private_ip}",
-             "--query", "Reservations[0].Instances[0].LaunchTime",
+             "--filters", "Name=tag:Name,Values=cka-coach-cp,cka-coach-worker",
+             "--query", "Reservations[*].Instances[*].["
+                        "Tags[?Key==`Name`]|[0].Value,"
+                        "InstanceId,InstanceType,State.Name,"
+                        "Placement.AvailabilityZone,LaunchTime,"
+                        "PrivateIpAddress,PublicIpAddress]",
              "--output", "text"],
             capture_output=True, text=True, timeout=8,
         )
-        launch_str = (r.stdout or "").strip()
-        if launch_str and launch_str != "None":
-            launch_dt = datetime.fromisoformat(
-                launch_str.replace("Z", "+00:00")
+        now = datetime.now(timezone.utc)
+        for line in (r.stdout or "").splitlines():
+            parts = line.strip().split("\t")
+            if len(parts) < 8:
+                continue
+            name, iid, itype, state, iaz, launch_str, priv, pub = parts[:8]
+            rate = HOURLY_RATES.get(itype, 0.0)
+            node_uptime = 0.0
+            node_cost   = 0.0
+            if state == "running" and launch_str and launch_str != "None":
+                try:
+                    launch_dt = datetime.fromisoformat(
+                        launch_str.replace("Z", "+00:00")
+                    )
+                    node_uptime = (now - launch_dt).total_seconds() / 3600
+                    node_cost   = node_uptime * rate
+                    total_cost += node_cost
+                    projected_8h += rate * 8
+                except Exception:
+                    pass
+            all_nodes.append({
+                "name": name, "instance_id": iid,
+                "instance_type": itype, "state": state,
+                "az": iaz, "private_ip": priv,
+                "public_ip": pub if pub != "None" else "",
+                "uptime_hours": round(node_uptime, 1),
+                "hourly_rate": rate,
+                "cost": round(node_cost, 4),
+            })
+        if all_nodes:
+            cost_note = f"{region} | On Demand Linux"
+            uptime_hours = next(
+                (n["uptime_hours"] for n in all_nodes if n["instance_id"] == instance_id),
+                0.0,
             )
-            uptime_hours = (
-                datetime.now(timezone.utc) - launch_dt
-            ).total_seconds() / 3600
-            cost = uptime_hours * hourly_rate
-            cost_note = (
-                f"On Demand Linux {instance_type} in {region or az[:len(az)-1] if az else 'unknown'}"
+            cost = next(
+                (n["cost"] for n in all_nodes if n["instance_id"] == instance_id),
+                0.0,
             )
-    except Exception:
-        cost_note = "Launch time not available — AWS CLI or IAM role may not be configured"
+    except Exception as e:
+        cost_note = f"AWS API unavailable: {e}"
 
     return L0InstanceMetadata(
         platform=PLATFORM_AWS,
@@ -190,10 +221,12 @@ def _collect_aws_metadata() -> L0InstanceMetadata:
         uptime_hours=round(uptime_hours, 1),
         hourly_rate_usd=hourly_rate,
         estimated_cost_usd=round(cost, 4),
-        projected_8h_cost_usd=round(hourly_rate * 8, 2),
+        projected_8h_cost_usd=round(projected_8h, 2),
         cost_note=cost_note,
         observed=bool(instance_id),
-        note="AWS EC2 — evidence from IMDSv2 metadata service",
+        note="AWS EC2 — evidence from IMDSv2 + AWS API",
+        all_nodes=all_nodes,
+        total_cost_usd=round(total_cost, 4),
     )
 
 

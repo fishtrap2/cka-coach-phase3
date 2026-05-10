@@ -402,21 +402,33 @@ def summarize(state: dict) -> dict:
         if l0_meta.observed and l0_meta.platform in (PLATFORM_AWS, PLATFORM_GCP):
             parts = []
             if l0_meta.platform == PLATFORM_AWS:
-                parts.append(f"AWS EC2 | {l0_meta.instance_type}")
+                parts.append(f"AWS EC2 | {l0_meta.region or l0_meta.availability_zone}")
             else:
-                parts.append(f"GCP | {l0_meta.instance_type}")
-            if l0_meta.instance_id:
-                parts.append(f"id: {l0_meta.instance_id}")
-            if l0_meta.ami_id and l0_meta.platform == PLATFORM_AWS:
-                parts.append(f"ami: {l0_meta.ami_id}")
-            if l0_meta.availability_zone:
-                parts.append(f"az: {l0_meta.availability_zone}")
-            if l0_meta.region:
-                parts.append(f"region: {l0_meta.region}")
-            if l0_meta.estimated_cost_usd > 0:
-                parts.append(f"cost: ${l0_meta.estimated_cost_usd:.4f} ({l0_meta.uptime_hours}h)")
-            elif l0_meta.cost_note:
-                parts.append(l0_meta.cost_note)
+                parts.append(f"GCP | {l0_meta.region}")
+            # Show all nodes if available from AWS API
+            if l0_meta.all_nodes:
+                for node in l0_meta.all_nodes:
+                    state_icon = "🟢" if node["state"] == "running" else "🔴"
+                    cost_str = f" | ${node['cost']:.4f} ({node['uptime_hours']}h)" if node["cost"] > 0 else ""
+                    parts.append(
+                        f"{state_icon} {node['name']} | {node['instance_type']} | "
+                        f"{node['instance_id']} | az: {node['az']}{cost_str}"
+                    )
+                if l0_meta.total_cost_usd > 0:
+                    parts.append(
+                        f"Total: ${l0_meta.total_cost_usd:.4f} | "
+                        f"projected 8h: ${l0_meta.projected_8h_cost_usd:.2f}"
+                    )
+            else:
+                # Fallback to single-node metadata
+                if l0_meta.instance_id:
+                    parts.append(f"id: {l0_meta.instance_id}")
+                if l0_meta.ami_id and l0_meta.platform == PLATFORM_AWS:
+                    parts.append(f"ami: {l0_meta.ami_id}")
+                if l0_meta.availability_zone:
+                    parts.append(f"az: {l0_meta.availability_zone}")
+                if l0_meta.estimated_cost_usd > 0:
+                    parts.append(f"cost: ${l0_meta.estimated_cost_usd:.4f} ({l0_meta.uptime_hours}h)")
             infra_text = "<br>".join(parts)
         elif l0_meta.platform == PLATFORM_KIND:
             infra_text = "KIND — local Docker | no cloud charges"
