@@ -21,7 +21,7 @@ ELS layer: L0 — Virtual Hardware / Cloud Infrastructure
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 from testbed.phase_evidence import HOURLY_RATES
 
