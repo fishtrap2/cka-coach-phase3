@@ -329,8 +329,106 @@ for sg in data['SecurityGroups']:
     done
 fi
 
+# ---------------------------------------------------------------------------
+# Cost estimate
+# ---------------------------------------------------------------------------
+section "Running cost estimate (L0)"
+echo "  Why this matters:"
+echo "  Cloud infrastructure is not free. Every hour your instances run,"
+echo "  AWS charges your account. Understanding the cost of your lab"
+echo "  environment is part of understanding L0 — the infrastructure layer."
+echo "  Stopping instances when not in use is a real operational discipline."
 echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+echo "  Note: these are estimates based on public On Demand pricing for"
+echo "  ca-central-1. Actual charges may vary. Check AWS Cost Explorer"
+echo "  for exact billing. Stopped instances still incur EBS storage charges"
+echo "  (~\$0.10/GB/month) even when not running."
+echo ""
+
+# Known On Demand Linux pricing for ca-central-1 (USD/hour)
+# Source: aws pricing get-products
+get_hourly_rate() {
+    case "$1" in
+        t3.micro)   echo "0.0116" ;;
+        t3.small)   echo "0.0232" ;;
+        t3.medium)  echo "0.0464" ;;
+        t3.large)   echo "0.0928" ;;
+        t3.xlarge)  echo "0.1856" ;;
+        t3.2xlarge) echo "0.3712" ;;
+        m5.large)   echo "0.1060" ;;
+        m5.xlarge)  echo "0.2120" ;;
+        *)          echo "" ;;
+    esac
+}
+
+NOW=$(date +%s)
+TOTAL_COST="0"
+TOTAL_RUNNING=0
+
+INSTANCE_DATA=$(aws ec2 describe-instances \
+    --filters "Name=tag:Name,Values=cka-coach-cp,cka-coach-worker" \
+    --query 'Reservations[*].Instances[*].[
+        Tags[?Key==`Name`]|[0].Value,
+        InstanceId,
+        State.Name,
+        InstanceType,
+        LaunchTime
+    ]' \
+    --output text 2>/dev/null)
+
+printf "  %-20s %-12s %-10s %-12s %-12s %s\n" \
+    "Name" "State" "Type" "Uptime (h)" "Cost (USD)" "Note"
+printf "  %-20s %-12s %-10s %-12s %-12s %s\n" \
+    "--------------------" "------------" "----------" "------------" "------------" "----"
+
+while IFS=$'\t' read -r name instance_id state itype launch_time; do
+    [[ -z "$name" ]] && continue
+
+    rate=$(get_hourly_rate "$itype")
+
+    if [[ "$state" == "running" ]] && [[ -n "$launch_time" ]] && [[ -n "$rate" ]]; then
+        launch_epoch=$(date -d "$launch_time" +%s 2>/dev/null || \
+                       python3 -c "import datetime; print(int(datetime.datetime.fromisoformat('${launch_time}'.replace('Z','+00:00')).timestamp()))" 2>/dev/null || echo "0")
+        if [[ "$launch_epoch" -gt 0 ]]; then
+            uptime_secs=$(( NOW - launch_epoch ))
+            uptime_hours=$(echo "scale=1; $uptime_secs / 3600" | bc 2>/dev/null || echo "?")
+            cost=$(echo "scale=4; $uptime_secs / 3600 * $rate" | bc 2>/dev/null || echo "?")
+            cost_display=$(printf "\$%.4f" "$cost" 2>/dev/null || echo "\$$cost")
+            TOTAL_COST=$(echo "scale=4; $TOTAL_COST + $cost" | bc 2>/dev/null || echo "?")
+            TOTAL_RUNNING=$(( TOTAL_RUNNING + 1 ))
+            printf "  %-20s %-12s %-10s %-12s %-12s %s\n" \
+                "$name" "$state" "$itype" "${uptime_hours}h" "$cost_display" "running"
+        fi
+    elif [[ "$state" == "stopped" ]]; then
+        ebs_note="EBS charges apply"
+        printf "  %-20s %-12s %-10s %-12s %-12s %s\n" \
+            "$name" "$state" "$itype" "0h" "\$0.00" "$ebs_note"
+    else
+        printf "  %-20s %-12s %-10s %-12s %-12s %s\n" \
+            "$name" "$state" "$itype" "-" "-" "rate unknown"
+    fi
+done <<< "$INSTANCE_DATA"
+
+echo ""
+if [[ "$TOTAL_RUNNING" -gt 0 ]]; then
+    total_display=$(printf "\$%.4f" "$TOTAL_COST" 2>/dev/null || echo "\$$TOTAL_COST")
+    projected=$(echo "scale=4; $TOTAL_COST / $TOTAL_RUNNING * 8 * $TOTAL_RUNNING" | bc 2>/dev/null || echo "?")
+    projected_display=$(printf "\$%.2f" "$projected" 2>/dev/null || echo "\$$projected")
+    echo -e "  ${YELLOW}Total estimated cost so far this session: ${total_display} USD${RESET}"
+    echo -e "  ${YELLOW}Projected cost if left running 8 hours:   ${projected_display} USD${RESET}"
+    echo ""
+    echo -e "  ${RED}Remember: stop your instances when done to avoid unnecessary charges.${RESET}"
+    echo "  aws ec2 stop-instances --instance-ids \\"
+    aws ec2 describe-instances \
+        --filters "Name=tag:Name,Values=cka-coach-cp,cka-coach-worker" \
+        --query 'Reservations[*].Instances[*].InstanceId' \
+        --output text 2>/dev/null | tr '\t' ' '
+else
+    echo -e "  ${GREEN}No instances currently running — no compute charges accruing.${RESET}"
+    echo "  Stopped instances still incur EBS storage charges (~\$0.10/GB/month)."
+fi
+
+echo ""
 echo -e "${GREEN} L0 identity and instance evidence collection complete.${RESET}"
 echo -e "${GREEN} You now have the operator view of your testbed.${RESET}"
 echo -e "${GREEN} Compare with 01-aws-metadata.sh (the VM's own view) for the full L0 picture.${RESET}"
