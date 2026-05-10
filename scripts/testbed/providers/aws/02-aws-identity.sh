@@ -45,9 +45,9 @@ section() {
 port_description() {
     local port=$1 proto=$2
     case "${proto}:${port}" in
-        tcp:22)    echo "SSH — remote terminal access" ;;
-        tcp:80)    echo "HTTP — web traffic" ;;
-        tcp:443)   echo "HTTPS — secure web traffic" ;;
+        tcp:22)    echo "SSH - remote terminal access" ;;
+        tcp:80)    echo "HTTP - web traffic" ;;
+        tcp:443)   echo "HTTPS - secure web traffic" ;;
         tcp:6443)  echo "Kubernetes API server" ;;
         tcp:2379)  echo "etcd client API" ;;
         tcp:2380)  echo "etcd peer communication" ;;
@@ -290,20 +290,17 @@ for sg in data['SecurityGroups']:
             src=$(echo "$line"    | awk '{print $4}')
             proto_upper=$(echo "$proto" | tr '[:lower:]' '[:upper:]')
             if [[ "$proto" == "-1" ]]; then
-                src_label="${src}"
-                port_label="All ports"
-                desc="-1 = all protocols/ports (any traffic allowed from this source)"
+                printf "  │ %-8s │ %-24s │ %-34s │ %-32s │\n" \
+                    "ALL" "${src}" "All ports" "all protocols (-1 = any)"
             elif [[ "$from_p" == "$to_p" ]]; then
-                port_label=$(port_label "$from_p" "$proto")
+                plabel=$(port_label "$from_p" "$proto")
                 desc=$(port_description "$from_p" "$proto")
-                src_label="${src}"
+                printf "  │ %-8s │ %-24s │ %-34s │ %-32s │\n" \
+                    "${proto_upper}" "${src}" "${plabel}" "${desc}"
             else
-                port_label="${from_p}-${to_p}"
-                desc="port range"
-                src_label="${src}"
+                printf "  │ %-8s │ %-24s │ %-34s │ %-32s │\n" \
+                    "${proto_upper}" "${src}" "${from_p}-${to_p}" "port range"
             fi
-            printf "  │ %-8s │ %-24s │ %-34s │ %-32s │\n" \
-                "${proto_upper}" "${src_label}" "${port_label}" "${desc}"
         done
 
         echo "  └──────────┴──────────────────────────┴────────────────────────────────────┴──────────────────────────────────┘"
