@@ -17,14 +17,144 @@ ELS layers: L0, L1-L3, L4.5, L4.3, L8
 """
 
 import subprocess
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 
 EVIDENCE_UNKNOWN = "unknown"
 EVIDENCE_OBSERVED = "observed"
 EVIDENCE_NOT_OBSERVED = "not_observed"
 EVIDENCE_STUDENT_CONFIRMED = "student_confirmed"
+
+
+# ---------------------------------------------------------------------------
+# On Demand pricing table — ca-central-1, Linux, shared tenancy
+# Source: aws pricing get-products
+# ---------------------------------------------------------------------------
+
+HOURLY_RATES: Dict[str, float] = {
+    "t3.micro":   0.0116,
+    "t3.small":   0.0232,
+    "t3.medium":  0.0464,
+    "t3.large":   0.0928,
+    "t3.xlarge":  0.1856,
+    "t3.2xlarge": 0.3712,
+    "m5.large":   0.1060,
+    "m5.xlarge":  0.2120,
+}
+
+EBS_RATE_PER_GB_MONTH = 0.10  # gp2/gp3 ca-central-1
+
+
+@dataclass
+class InstanceCost:
+    name: str
+    instance_id: str
+    instance_type: str
+    state: str
+    uptime_hours: float
+    hourly_rate: float
+    estimated_cost_usd: float
+    note: str
+
+
+@dataclass
+class CostSummary:
+    instances: List[InstanceCost] = field(default_factory=list)
+    total_running_cost_usd: float = 0.0
+    projected_8h_cost_usd: float = 0.0
+    running_count: int = 0
+    stopped_count: int = 0
+    region: str = "ca-central-1"
+    note: str = ""  # e.g. EBS charges reminder
+
+
+def collect_cost_summary(nodes: list) -> CostSummary:
+    """
+    Calculate estimated running cost for testbed instances.
+    Uses instance launch time from NodeState and known hourly rates.
+    Safe to call with no nodes — returns empty summary.
+    """
+    summary = CostSummary()
+    now = datetime.now(timezone.utc)
+
+    for node in nodes:
+        itype = getattr(node, "instance_type", "")
+        state = getattr(node, "state", "")
+        instance_id = getattr(node, "instance_id", "")
+        name = getattr(node, "name", "")
+        launch_time = getattr(node, "launch_time", None)
+
+        rate = HOURLY_RATES.get(itype, 0.0)
+
+        if state == "running" and launch_time and rate:
+            try:
+                if isinstance(launch_time, str):
+                    launch_dt = datetime.fromisoformat(
+                        launch_time.replace("Z", "+00:00")
+                    )
+                else:
+                    launch_dt = launch_time
+                uptime_hours = (now - launch_dt).total_seconds() / 3600
+                cost = uptime_hours * rate
+                summary.instances.append(InstanceCost(
+                    name=name,
+                    instance_id=instance_id,
+                    instance_type=itype,
+                    state=state,
+                    uptime_hours=round(uptime_hours, 1),
+                    hourly_rate=rate,
+                    estimated_cost_usd=round(cost, 4),
+                    note="running",
+                ))
+                summary.total_running_cost_usd += cost
+                summary.running_count += 1
+            except Exception:
+                summary.instances.append(InstanceCost(
+                    name=name, instance_id=instance_id,
+                    instance_type=itype, state=state,
+                    uptime_hours=0, hourly_rate=rate,
+                    estimated_cost_usd=0, note="uptime unknown",
+                ))
+        elif state == "stopped":
+            summary.stopped_count += 1
+            summary.instances.append(InstanceCost(
+                name=name, instance_id=instance_id,
+                instance_type=itype, state=state,
+                uptime_hours=0, hourly_rate=0,
+                estimated_cost_usd=0,
+                note="stopped — EBS charges apply (~$0.10/GB/month)",
+            ))
+        else:
+            summary.instances.append(InstanceCost(
+                name=name, instance_id=instance_id,
+                instance_type=itype, state=state,
+                uptime_hours=0, hourly_rate=0,
+                estimated_cost_usd=0, note="rate unknown",
+            ))
+
+    if summary.running_count > 0:
+        summary.projected_8h_cost_usd = round(
+            sum(
+                inst.hourly_rate * 8
+                for inst in summary.instances
+                if inst.state == "running"
+            ),
+            2,
+        )
+        summary.total_running_cost_usd = round(summary.total_running_cost_usd, 4)
+        summary.note = (
+            f"{summary.running_count} instance(s) running. "
+            f"Remember to stop them when done to avoid unnecessary charges."
+        )
+    elif summary.stopped_count > 0:
+        summary.note = (
+            "All instances stopped — no compute charges accruing. "
+            "EBS storage charges still apply (~$0.10/GB/month)."
+        )
+
+    return summary
 
 
 @dataclass

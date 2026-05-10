@@ -156,6 +156,7 @@ def detect_instances() -> Tuple[List[NodeState], List[CheckResult]]:
             private_ip=instance.get("PrivateIpAddress", ""),
             instance_type=instance.get("InstanceType", ""),
             state=instance.get("State", {}).get("Name", ""),
+            launch_time=instance.get("LaunchTime", ""),
         ))
 
     found_names = [node.name for node in nodes]

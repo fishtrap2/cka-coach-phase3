@@ -41,6 +41,7 @@ class NodeState:
     private_ip: str = ""
     instance_type: str = ""
     state: str = ""                  # running, stopped, terminated
+    launch_time: str = ""            # ISO8601 launch time from AWS
     ssh_reachable: bool = False
     ping_reachable: bool = False
     checks: List[CheckResult] = field(default_factory=list)

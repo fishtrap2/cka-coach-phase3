@@ -39,6 +39,7 @@ from testbed.prereq_checker import (
 )
 from testbed.phase_evidence import (
     collect_phase_evidence,
+    collect_cost_summary,
     infer_likely_phase,
     EVIDENCE_OBSERVED,
     EVIDENCE_STUDENT_CONFIRMED,
@@ -79,6 +80,9 @@ st.caption("Guided two-VM Kubernetes cluster setup and teardown — powered by t
 _observer = collect_observer_context()
 _banner_color = "🟢" if _observer.cluster_reachable else "🟡"
 st.info(f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}")
+
+# L0 cost strip — always visible when instances are known
+_render_cost_strip()
 
 # ---------------------------------------------------------------------------
 # Session state
@@ -124,14 +128,64 @@ def _phase_progress():
         pass
 
 
+def _render_cost_strip():
+    """
+    Render a persistent L0 cost strip showing per-instance uptime and estimated cost.
+    Replaces the simple _cost_reminder warning with real evidence-based cost data.
+    """
+    if not state.nodes:
+        return
+    summary = collect_cost_summary(state.nodes)
+    if not summary.instances:
+        return
+
+    with st.container(border=True):
+        st.caption("💰 L0 — Running cost estimate (On Demand, ca-central-1)")
+        cols = st.columns(len(summary.instances) + 2)
+        for i, inst in enumerate(summary.instances):
+            with cols[i]:
+                if inst.state == "running":
+                    st.metric(
+                        label=inst.name,
+                        value=f"${inst.estimated_cost_usd:.4f}",
+                        delta=f"{inst.uptime_hours}h @ ${inst.hourly_rate}/hr",
+                        delta_color="off",
+                    )
+                else:
+                    st.metric(
+                        label=inst.name,
+                        value="$0.00",
+                        delta="stopped — EBS charges apply",
+                        delta_color="off",
+                    )
+        with cols[len(summary.instances)]:
+            if summary.running_count > 0:
+                st.metric(
+                    label="Total so far",
+                    value=f"${summary.total_running_cost_usd:.4f}",
+                    delta=f"~${summary.projected_8h_cost_usd:.2f} if left 8h",
+                    delta_color="inverse",
+                )
+        with cols[len(summary.instances) + 1]:
+            if summary.running_count > 0:
+                instance_ids = " ".join(
+                    n.instance_id for n in state.nodes
+                    if n.state == "running" and n.instance_id
+                )
+                st.caption("Stop when done:")
+                st.code(
+                    f"aws ec2 stop-instances --instance-ids {instance_ids}",
+                    language="bash",
+                )
+
+
 def _cost_reminder():
+    """Lightweight fallback used in phase completion screens."""
     running = [n for n in state.nodes if n.state == "running"]
     if running:
         st.warning(
             f"⚠️ {len(running)} instance(s) currently running — remember to stop them "
-            "when done to avoid unnecessary AWS charges. "
-            "`aws ec2 stop-instances --instance-ids " +
-            " ".join(n.instance_id for n in running if n.instance_id) + "`"
+            "when done to avoid unnecessary AWS charges."
         )
 
 
