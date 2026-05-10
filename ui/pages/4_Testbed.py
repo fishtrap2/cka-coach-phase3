@@ -81,9 +81,6 @@ _observer = collect_observer_context()
 _banner_color = "🟢" if _observer.cluster_reachable else "🟡"
 st.info(f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}")
 
-# L0 cost strip — always visible when instances are known
-_render_cost_strip()
-
 # ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
@@ -192,6 +189,9 @@ def _cost_reminder():
 # ---------------------------------------------------------------------------
 # Phase indicator + CNI selector
 # ---------------------------------------------------------------------------
+
+# L0 cost strip
+_render_cost_strip()
 
 # CNI selector
 selected_cni = st.selectbox(
