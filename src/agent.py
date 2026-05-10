@@ -1,4 +1,5 @@
 import json
+import os
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -11,10 +12,20 @@ from els_model import ELS_LAYERS
 from els_mapper import map_to_els
 from command_boundaries import normalize_boundary_commands, format_boundary_commands_text
 
-# OpenAI client used for the explanatory / teaching layer.
-# Important: the model is no longer the owner of the ELS logic.
-# Python computes the deterministic ELS result first, then the LLM explains it.
-client = OpenAI()
+# OpenAI client — lazy initialised so the dashboard loads without a key.
+# ask_llm() checks for the key before making any API call.
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = OpenAI()
+    return _client
+
+
+def llm_available() -> bool:
+    """Return True if an OpenAI API key is configured."""
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
 
 
 def build_trace(question: str, state: dict):
@@ -642,19 +653,22 @@ def build_llm_context(collected_state: dict) -> str:
 def ask_llm(question: str, collected_state: dict, concise: bool = False, allow_web: bool = False) -> CoachResponse:
     """
     Main entrypoint used by CLI and dashboard.
-
-    Input:
-    - question: student's question
-    - collected_state: structured output from state_collector.collect_state()
-
-    Flow:
-    1. build deterministic trace
-    2. build deterministic ELS result
-    3. send a compact evidence package + ELS result to the model
-    4. parse model JSON
-    5. overwrite model-returned ELS with deterministic project logic
-    6. attach deterministic trace
+    Returns a graceful no-key response if OPENAI_API_KEY is not set.
     """
+    if not llm_available():
+        return {
+            "summary": "",
+            "answer": "",
+            "els": {
+                "layer": "", "layer_number": "", "layer_name": "",
+                "explanation": "", "next_steps": [],
+                "guided_investigation_plan": [], "mapped_context": {},
+            },
+            "learning": {"kubernetes": "", "ai": "", "platform": "", "product": ""},
+            "agent_trace": [],
+            "warnings": [],
+            "no_llm": True,
+        }
     try:
         # Deterministic project-side reasoning
         trace = build_trace(question, collected_state)
@@ -781,7 +795,7 @@ Return JSON with exactly this shape:
 }}
 """
 
-        response = client.responses.create(
+        response = _get_client().responses.create(
             model=OPENAI_MODEL,
             input=[
                 {"role": "system", "content": system_prompt},

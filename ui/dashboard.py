@@ -20,7 +20,7 @@ from dashboard_presenters import (
     cni_summary_text,
     render_network_visual_html,
 )
-from agent import ask_llm
+from agent import ask_llm, llm_available
 from command_boundaries import format_boundary_commands_html, format_boundary_commands_text
 from els_model import ELS_LAYERS
 from lessons import (
@@ -1787,7 +1787,15 @@ with st.container(border=True):
 
 with st.expander("Explain", expanded=True):
     st.caption("Interpreted explanation generated from the structured state and deterministic ELS logic.")
-    if st.button(f"Explain {layer_label(selected_layer)}", key=f"explain_{selected_key}"):
+    if not llm_available():
+        st.info(
+            "🟡 Explain is not available — no OpenAI API key is configured.  \n"
+            "To enable it, set `OPENAI_API_KEY` in your `.env` file or as an environment variable "
+            "before starting cka-coach.  \n"
+            "The rest of the dashboard — ELS table, networking panel, and evidence views — "
+            "works without an API key."
+        )
+    elif st.button(f"Explain {layer_label(selected_layer)}", key=f"explain_{selected_key}"):
         explanation = ask_llm(
             f"Explain current state of {selected_layer['name']}",
             state
@@ -1796,7 +1804,10 @@ with st.expander("Explain", expanded=True):
 
     parsed = st.session_state.get(f"explanation_{selected_key}")
     if not parsed:
-        st.info("Select a layer and click Explain to load the interpreted explanation.")
+        if llm_available():
+            st.info("Select a layer and click Explain to load the interpreted explanation.")
+    elif parsed.get("no_llm"):
+        pass  # already shown the info box above
     elif "error" in parsed:
         st.error(parsed["error"])
     elif "raw_text" in parsed:
