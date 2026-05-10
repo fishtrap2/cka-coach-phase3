@@ -8,6 +8,7 @@ from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from observer_context import collect_observer_context
+from observer_platform import collect_l0_metadata, PLATFORM_AWS, PLATFORM_GCP, PLATFORM_KIND, PLATFORM_UNKNOWN
 
 from state_collector import collect_state
 from dashboard_presenters import (
@@ -1083,6 +1084,88 @@ st.warning(
     "KEY: 🟢 = healthy; 🔴 = degraded/unhealthy; 🟡 = unknown / visibility-limited. "
     "A future lab can teach how to run cka-coach in a container, Pod, or Service while preserving the evidence paths it needs."
 )
+
+# --------------------------
+# L0 Infrastructure Panel
+# --------------------------
+st.divider()
+st.markdown("## L0 — Infrastructure")
+st.caption("Cloud substrate evidence — where this node physically lives.")
+
+if "l0_metadata" not in st.session_state:
+    st.session_state["l0_metadata"] = None
+
+l0_col1, l0_col2 = st.columns([3, 1])
+with l0_col2:
+    if st.button("Refresh L0 evidence", key="refresh_l0"):
+        with st.spinner("Collecting L0 metadata..."):
+            st.session_state["l0_metadata"] = collect_l0_metadata()
+
+l0 = st.session_state["l0_metadata"]
+if l0 is None:
+    with st.spinner("Collecting L0 metadata..."):
+        st.session_state["l0_metadata"] = collect_l0_metadata()
+        l0 = st.session_state["l0_metadata"]
+
+with st.container(border=True):
+    if l0.platform == PLATFORM_AWS:
+        platform_label = "🟢 AWS EC2"
+    elif l0.platform == PLATFORM_GCP:
+        platform_label = "🟢 GCP Compute Engine"
+    elif l0.platform == PLATFORM_KIND:
+        platform_label = "🟡 KIND (local Docker)"
+    else:
+        platform_label = "🟡 Unknown / local machine"
+
+    st.markdown(f"**Platform:** {platform_label}")
+    st.caption(l0.note)
+
+    if l0.observed and l0.platform in (PLATFORM_AWS, PLATFORM_GCP):
+        id_col1, id_col2, id_col3, id_col4, id_col5 = st.columns(5)
+        id_col1.metric("Instance ID", l0.instance_id or "unknown")
+        id_col2.metric("Instance Type", l0.instance_type or "unknown")
+        if l0.platform == PLATFORM_AWS:
+            id_col3.metric("AMI ID", l0.ami_id or "unknown")
+        else:
+            id_col3.metric("Image", "GCP image")
+        id_col4.metric("Availability Zone", l0.availability_zone or "unknown")
+        id_col5.metric("Region", l0.region or "unknown")
+
+        net_col1, net_col2 = st.columns(2)
+        net_col1.metric("Private IP", l0.private_ip or "unknown")
+        net_col2.metric("Public IP", l0.public_ip or "none")
+
+        # Cost strip
+        if l0.hourly_rate_usd > 0:
+            st.divider()
+            st.caption("💰 Running cost estimate (On Demand)")
+            cost_col1, cost_col2, cost_col3 = st.columns(3)
+            cost_col1.metric(
+                "Cost so far",
+                f"${l0.estimated_cost_usd:.4f}",
+                delta=f"{l0.uptime_hours}h @ ${l0.hourly_rate_usd}/hr",
+                delta_color="off",
+            )
+            cost_col2.metric(
+                "Projected (8h)",
+                f"${l0.projected_8h_cost_usd:.2f}",
+                delta="if left running",
+                delta_color="inverse",
+            )
+            with cost_col3:
+                st.caption(l0.cost_note)
+        elif l0.platform == PLATFORM_KIND:
+            st.info("🟢 KIND — running on local Docker. No cloud compute charges.")
+        else:
+            st.caption(l0.cost_note or "Cost data not available — IAM role may not be attached.")
+    elif l0.platform == PLATFORM_KIND:
+        st.info("🟢 KIND — Kubernetes in Docker on your local machine. No cloud infrastructure cost.")
+    else:
+        st.caption(
+            "No cloud metadata detected. "
+            "Running on a local machine or a platform without a metadata service. "
+            "L0 evidence is not available from this environment."
+        )
 
 # --------------------------
 # Networking Panel
