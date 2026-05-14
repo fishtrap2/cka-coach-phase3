@@ -58,6 +58,11 @@ if _observer.mode in ("node_with_cluster", "node_no_cluster", "node_in_cluster")
             f"🌐 You are viewing this from: **{_browser_ip}** (your browser / Mac) — "
             "the browser is a display surface only."
         )
+    else:
+        _observer_lines.append(
+            "🌐 Your browser is a display surface only — it connects to this node over HTTP. "
+            "Your Mac IP is not exposed without a reverse proxy (nginx/ALB)."
+        )
 
 st.info("  \n".join(_observer_lines))
 
