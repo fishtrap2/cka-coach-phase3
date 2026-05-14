@@ -318,15 +318,18 @@ def check_cka_coach_phase(cp_public_ip: str) -> PhaseEvidence:
             label="L8 — cka-coach on cluster",
             els_layer="L8",
             status=EVIDENCE_NOT_OBSERVED,
-            detail="Control plane public IP not known yet",
+            detail="Control plane public IP not known yet — run AWS validation first",
             icon="🟡",
         )
     ok, output = _run(
-        ["curl", "-s", "--max-time", "4", "-o", "/dev/null", "-w", "%{http_code}",
+        ["curl", "-s", "--max-time", "6", "-o", "/dev/null", "-w", "%{http_code}",
          f"http://{cp_public_ip}:8501"],
-        timeout=6,
+        timeout=8,
     )
-    if ok and output.strip() in ("200", "302", "303"):
+    code = output.strip()
+    # 000 = connection refused or timeout
+    # Streamlit returns 200 on the main page
+    if ok and code in ("200", "302", "303"):
         return PhaseEvidence(
             phase_id="cka_coach",
             label="L8 — cka-coach on cluster",
@@ -335,12 +338,21 @@ def check_cka_coach_phase(cp_public_ip: str) -> PhaseEvidence:
             detail=f"cka-coach reachable at http://{cp_public_ip}:8501",
             icon="🟢",
         )
+    if code == "000":
+        detail = (
+            f"Connection refused or timed out at http://{cp_public_ip}:8501.  "
+            f"Check: (1) streamlit is running on the VM, "
+            f"(2) port 8501 is open in the security group for your IP, "
+            f"(3) the public IP is current — it changes on stop/start."
+        )
+    else:
+        detail = f"HTTP {code} from http://{cp_public_ip}:8501 — cka-coach may still be starting"
     return PhaseEvidence(
         phase_id="cka_coach",
         label="L8 — cka-coach on cluster",
         els_layer="L8",
         status=EVIDENCE_NOT_OBSERVED,
-        detail=f"cka-coach not yet reachable at http://{cp_public_ip}:8501",
+        detail=detail,
         icon="🟡",
     )
 
