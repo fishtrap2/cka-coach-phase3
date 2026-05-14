@@ -321,14 +321,38 @@ def check_cka_coach_phase(cp_public_ip: str) -> PhaseEvidence:
             detail="Control plane public IP not known yet — run AWS validation first",
             icon="🟡",
         )
+
+    # When running on the control plane itself, AWS does not support hairpin NAT
+    # (routing public IP traffic back to the same instance). Use localhost instead.
+    import socket
+    try:
+        local_hostname = socket.gethostname()
+        local_ips = socket.gethostbyname_ex(local_hostname)[2]
+    except Exception:
+        local_ips = []
+
+    # Also check if cp_public_ip matches the instance metadata local IP
+    try:
+        import subprocess as _sp
+        r = _sp.run(["curl", "-sf", "--max-time", "2",
+                     "http://169.254.169.254/latest/meta-data/public-ipv4"],
+                    capture_output=True, text=True, timeout=3)
+        instance_public_ip = r.stdout.strip()
+    except Exception:
+        instance_public_ip = ""
+
+    # If we are on the control plane, check localhost
+    check_url = "http://localhost:8501"
+    if instance_public_ip and instance_public_ip != cp_public_ip:
+        # Running on a different machine — use the public IP
+        check_url = f"http://{cp_public_ip}:8501"
+
     ok, output = _run(
         ["curl", "-s", "--max-time", "6", "-o", "/dev/null", "-w", "%{http_code}",
-         f"http://{cp_public_ip}:8501"],
+         check_url],
         timeout=8,
     )
     code = output.strip()
-    # 000 = connection refused or timeout
-    # Streamlit returns 200 on the main page
     if ok and code in ("200", "302", "303"):
         return PhaseEvidence(
             phase_id="cka_coach",

@@ -701,7 +701,7 @@ with st.expander(
     with st.container(border=True):
         st.markdown("**Step 5 — Run cka-coach with host evidence enabled**")
         st.code(
-            "streamlit run ui/dashboard.py --allow-host-evidence --server.address=0.0.0.0",
+            "streamlit run ui/dashboard.py --server.address=0.0.0.0 -- --allow-host-evidence",
             language="bash",
         )
         if cp_public_ip:
@@ -715,10 +715,20 @@ with st.expander(
 
     st.divider()
     st.markdown("**Verify cka-coach is running on the cluster**")
+    st.caption(
+        "If this check fails but you can open the URL in your browser, "
+        "re-run AWS validation above to refresh the current public IP — "
+        "it changes every time the instance stops and starts."
+    )
     if st.button("🔍 Check if cka-coach is reachable", key="check_cka_coach"):
         with st.spinner(f"Checking http://{cp_public_ip}:8501 ..."):
+            # Always re-query AWS for the freshest public IP
+            from testbed.aws_validator import detect_instances
+            fresh_nodes, _ = detect_instances()
+            fresh_cp = next((n for n in fresh_nodes if n.role == "control-plane"), None)
+            fresh_ip = fresh_cp.public_ip if fresh_cp and fresh_cp.public_ip else cp_public_ip
             from testbed.phase_evidence import check_cka_coach_phase
-            ev = check_cka_coach_phase(cp_public_ip)
+            ev = check_cka_coach_phase(fresh_ip)
             if ev.status == EVIDENCE_OBSERVED:
                 st.success(ev.detail)
             else:
