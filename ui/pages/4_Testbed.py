@@ -21,6 +21,10 @@ from testbed.testbed_state import (
     TestbedState,
     CNI_OPTIONS,
     CNI_DESCRIPTIONS,
+    PLATFORM_AWS,
+    PLATFORM_KIND,
+    PLATFORM_OPTIONS,
+    PLATFORM_LABELS,
     PHASE_AWS_VALIDATION,
     PHASE_PREREQUISITES,
     PHASE_K8S_INSTALL,
@@ -31,6 +35,7 @@ from testbed.testbed_state import (
     PHASE_LABELS,
 )
 from testbed.aws_validator import validate_aws_environment
+from testbed.kind_validator import validate_kind_environment, KIND_WARNING
 from testbed.prereq_checker import (
     PREREQ_STEPS,
     NodePrereqState,
@@ -187,24 +192,51 @@ def _cost_reminder():
 
 
 # ---------------------------------------------------------------------------
-# Phase indicator + CNI selector
+# Phase indicator + Platform + CNI selector
 # ---------------------------------------------------------------------------
 
 # L0 cost strip
 _render_cost_strip()
 
+# Platform selector
+platform_col, cni_col = st.columns(2)
+with platform_col:
+    selected_platform = st.selectbox(
+        "Testbed platform",
+        options=PLATFORM_OPTIONS,
+        index=PLATFORM_OPTIONS.index(state.selected_platform),
+        format_func=lambda p: PLATFORM_LABELS[p],
+        key="platform_selector",
+    )
+    if selected_platform != state.selected_platform:
+        state.selected_platform = selected_platform
+        state.nodes = []
+        state.aws_checks = []
+        state.notes = []
+        state.phase = PHASE_AWS_VALIDATION
+        st.session_state["prereq_states"] = {}
+        st.session_state["k8s_bundle"] = None
+        st.session_state["cni_bundle"] = None
+        _save_state()
+        st.rerun()
+
+# KIND warning
+if state.selected_platform == PLATFORM_KIND:
+    st.warning(KIND_WARNING)
+
 # CNI selector
-selected_cni = st.selectbox(
-    "CNI path",
-    options=CNI_OPTIONS,
-    index=CNI_OPTIONS.index(state.selected_cni),
-    format_func=lambda cni: CNI_DESCRIPTIONS[cni],
-    key="cni_selector",
-)
-if selected_cni != state.selected_cni:
-    state.selected_cni = selected_cni
-    st.session_state["cni_bundle"] = None
-    _save_state()
+with cni_col:
+    selected_cni = st.selectbox(
+        "CNI path",
+        options=CNI_OPTIONS,
+        index=CNI_OPTIONS.index(state.selected_cni),
+        format_func=lambda cni: CNI_DESCRIPTIONS[cni],
+        key="cni_selector",
+    )
+    if selected_cni != state.selected_cni:
+        state.selected_cni = selected_cni
+        st.session_state["cni_bundle"] = None
+        _save_state()
 
 # ---------------------------------------------------------------------------
 # Evidence-based phase status strip
@@ -270,11 +302,17 @@ with st.expander(
     f"{'✅' if aws_all_passed else '🔲'} Phase 1 — {PHASE_LABELS[PHASE_AWS_VALIDATION]}",
     expanded=(state.phase == PHASE_AWS_VALIDATION),
 ):
-    st.caption("Validate that your AWS environment is ready before touching Kubernetes.")
+    st.caption(
+        "Validate that your environment is ready before touching Kubernetes."
+        + (" KIND handles L1-L3 automatically — no manual prerequisites needed." if state.selected_platform == PLATFORM_KIND else "")
+    )
 
-    if st.button("Run AWS validation", key="run_aws_validation"):
-        with st.spinner("Querying AWS environment..."):
-            state = validate_aws_environment(state)
+    if st.button("Run AWS validation", key="run_aws_validation") if state.selected_platform == PLATFORM_AWS else st.button("Run KIND validation", key="run_kind_validation"):
+        with st.spinner("Checking environment..."):
+            if state.selected_platform == PLATFORM_KIND:
+                state = validate_kind_environment(state)
+            else:
+                state = validate_aws_environment(state)
             _save_state()
 
     if state.aws_checks:
@@ -327,87 +365,92 @@ with st.expander(
     f"{'✅' if all_prereqs_done else '🔲'} Phase 2 — {PHASE_LABELS[PHASE_PREREQUISITES]}",
     expanded=(state.phase == PHASE_PREREQUISITES),
 ):
-    st.caption(
-        "Before Kubernetes can run, each node needs a few things configured at the kernel and runtime level. "
-        "We will go through them one at a time. For each step: read why it matters, run the check command, "
-        "then confirm whether it passed or needs fixing."
-    )
-
-    if not state.nodes:
-        st.info("Complete AWS validation first to detect your nodes.")
+    if state.selected_platform == PLATFORM_KIND:
+        st.success(
+            "✅ KIND manages L1–L3 automatically — no manual prerequisites needed.  \n"
+            "KIND nodes come pre-configured with containerd and the required kernel settings.  \n"
+            "Note: this means you cannot observe or learn these layers in KIND — they are hidden."
+        )
+        if state.phase == PHASE_PREREQUISITES:
+            if st.button("✅ Skip prerequisites — proceed to Kubernetes install", key="kind_skip_prereqs"):
+                state.advance_phase()
+                _save_state()
+                st.rerun()
     else:
-        for node in state.nodes:
-            prereq_state: NodePrereqState = st.session_state["prereq_states"][node.name]
-            current_idx = prereq_state.current_step_index()
+        st.caption(
+            "Before Kubernetes can run, each node needs a few things configured at the kernel and runtime level. "
+            "We will go through them one at a time. For each step: read why it matters, run the check command, "
+            "then confirm whether it passed or needs fixing."
+        )
 
-            with st.container(border=True):
-                st.markdown(f"### {node.name} ({node.role})")
-                st.caption(
-                    f"SSH into this node: `{build_ssh_instruction(node)}`  \n"
-                    "Keep your SSH session open — you will run commands there for each step below."
-                )
+        if not state.nodes:
+            st.info("Complete Phase 1 validation first to detect your nodes.")
+        else:
+            for node in state.nodes:
+                prereq_state: NodePrereqState = st.session_state["prereq_states"][node.name]
+                current_idx = prereq_state.current_step_index()
 
-                # Progress within this node
-                done_count = sum(1 for s in prereq_state.steps if s.confirmed)
-                st.progress(done_count / len(PREREQ_STEPS))
-                st.caption(f"{done_count} of {len(PREREQ_STEPS)} steps complete")
+                with st.container(border=True):
+                    st.markdown(f"### {node.name} ({node.role})")
+                    st.caption(
+                        f"SSH into this node: `{build_ssh_instruction(node)}`  \n"
+                        "Keep your SSH session open — you will run commands there for each step below."
+                    )
 
-                # Shortcut for re-testing or experienced students
-                shortcut_col1, shortcut_col2 = st.columns([2, 1])
-                shortcut_col1.caption(
-                    "Already configured this node? Mark all steps complete to skip ahead."
-                )
-                if shortcut_col2.button(f"Mark all complete", key=f"mark_all_{node.name}"):
-                    for s in prereq_state.steps:
-                        s.confirmed = True
-                    st.session_state["prereq_states"][node.name] = prereq_state
-                    st.rerun()
+                    done_count = sum(1 for s in prereq_state.steps if s.confirmed)
+                    st.progress(done_count / len(PREREQ_STEPS))
+                    st.caption(f"{done_count} of {len(PREREQ_STEPS)} steps complete")
 
-                for idx, step_def in enumerate(PREREQ_STEPS):
-                    step_state = prereq_state.get_step(step_def["id"])
-                    step_key = f"{node.name}_{step_def['id']}"
+                    shortcut_col1, shortcut_col2 = st.columns([2, 1])
+                    shortcut_col1.caption(
+                        "Already configured this node? Mark all steps complete to skip ahead."
+                    )
+                    if shortcut_col2.button(f"Mark all complete", key=f"mark_all_{node.name}"):
+                        for s in prereq_state.steps:
+                            s.confirmed = True
+                        st.session_state["prereq_states"][node.name] = prereq_state
+                        st.rerun()
 
-                    # Completed steps — show collapsed summary
-                    if step_state.confirmed:
-                        col_a, col_b = st.columns([4, 1])
-                        col_a.markdown(f"✅ **[{step_def['els_layer']}] {step_def['title']}** — done")
-                        if col_b.button("Undo", key=f"undo_{step_key}"):
-                            step_state.confirmed = False
-                            st.session_state["prereq_states"][node.name] = prereq_state
-                            st.rerun()
-                        continue
+                    for idx, step_def in enumerate(PREREQ_STEPS):
+                        step_state = prereq_state.get_step(step_def["id"])
+                        step_key = f"{node.name}_{step_def['id']}"
 
-                    # Active step — no longer locked, student can work on any step
-                    with st.container(border=True):
-                        st.markdown(f"**[{step_def['els_layer']}] Step {idx + 1}: {step_def['title']}**")
-
-                        st.info(f"**Why Kubernetes needs this:**  \n{step_def['why']}")
-
-                        st.markdown("**Run this on the node to check current state:**")
-                        _render_commands(step_def["check_commands"])
-                        st.caption(step_def["check_hint"])
-
-                        passed = st.radio(
-                            f"Result for: {step_def['confirm_question']}",
-                            options=["— select —", "✅ Yes, it passed", "❌ No, it needs fixing"],
-                            key=f"radio_{step_key}",
-                            index=0,
-                        )
-
-                        if passed == "✅ Yes, it passed":
-                            if st.button(f"Confirm and continue", key=f"confirm_{step_key}"):
-                                step_state.confirmed = True
+                        if step_state.confirmed:
+                            col_a, col_b = st.columns([4, 1])
+                            col_a.markdown(f"✅ **[{step_def['els_layer']}] {step_def['title']}** — done")
+                            if col_b.button("Undo", key=f"undo_{step_key}"):
+                                step_state.confirmed = False
                                 st.session_state["prereq_states"][node.name] = prereq_state
                                 st.rerun()
+                            continue
 
-                        elif passed == "❌ No, it needs fixing":
-                            if step_def["fix_commands"]:
-                                st.markdown("**Run these fix commands on the node:**")
-                                _render_commands(step_def["fix_commands"])
-                                st.caption(step_def["fix_hint"])
-                                st.caption("After running the fix commands, re-run the check command above and select ✅ Yes when it passes.")
-                            else:
-                                st.caption(step_def["fix_hint"])
+                        with st.container(border=True):
+                            st.markdown(f"**[{step_def['els_layer']}] Step {idx + 1}: {step_def['title']}**")
+                            st.info(f"**Why Kubernetes needs this:**  \n{step_def['why']}")
+                            st.markdown("**Run this on the node to check current state:**")
+                            _render_commands(step_def["check_commands"])
+                            st.caption(step_def["check_hint"])
+
+                            passed = st.radio(
+                                f"Result for: {step_def['confirm_question']}",
+                                options=["— select —", "✅ Yes, it passed", "❌ No, it needs fixing"],
+                                key=f"radio_{step_key}",
+                                index=0,
+                            )
+
+                            if passed == "✅ Yes, it passed":
+                                if st.button(f"Confirm and continue", key=f"confirm_{step_key}"):
+                                    step_state.confirmed = True
+                                    st.session_state["prereq_states"][node.name] = prereq_state
+                                    st.rerun()
+                            elif passed == "❌ No, it needs fixing":
+                                if step_def["fix_commands"]:
+                                    st.markdown("**Run these fix commands on the node:**")
+                                    _render_commands(step_def["fix_commands"])
+                                    st.caption(step_def["fix_hint"])
+                                    st.caption("After running the fix commands, re-run the check command above and select ✅ Yes when it passes.")
+                                else:
+                                    st.caption(step_def["fix_hint"])
 
         if all_prereqs_done and state.phase == PHASE_PREREQUISITES:
             if st.button("✅ All prerequisites done — proceed to Kubernetes install", key="advance_to_k8s"):

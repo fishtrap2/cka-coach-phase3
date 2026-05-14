@@ -54,6 +54,23 @@ class NodeState:
 
 
 # ---------------------------------------------------------------------------
+# Testbed platform selection
+# ---------------------------------------------------------------------------
+
+PLATFORM_AWS  = "aws"
+PLATFORM_KIND = "kind"
+PLATFORM_GCP  = "gcp"  # future
+
+PLATFORM_OPTIONS = [PLATFORM_AWS, PLATFORM_KIND]
+
+PLATFORM_LABELS = {
+    PLATFORM_AWS:  "AWS (EC2 instances) — Stage 2+ recommended",
+    PLATFORM_KIND: "KIND (local Docker) — Stage 1 shortcut",
+    PLATFORM_GCP:  "GCP (coming soon)",
+}
+
+
+# ---------------------------------------------------------------------------
 # CNI selection — student chooses one of these at the start of the lesson.
 # ---------------------------------------------------------------------------
 
@@ -111,6 +128,9 @@ PHASE_LABELS = {
 
 @dataclass
 class TestbedState:
+    # Platform selection
+    selected_platform: str = PLATFORM_AWS
+
     # Current phase
     phase: str = PHASE_AWS_VALIDATION
 
