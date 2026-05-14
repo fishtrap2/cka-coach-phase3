@@ -7,7 +7,7 @@ from datetime import datetime
 # Allow imports from ../src
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from observer_context import collect_observer_context
+from observer_context import collect_observer_context, get_browser_client_ip
 from observer_platform import collect_l0_metadata, PLATFORM_AWS, PLATFORM_GCP, PLATFORM_KIND, PLATFORM_UNKNOWN
 
 from state_collector import collect_state
@@ -44,10 +44,22 @@ st.caption("A layered Kubernetes learning console powered by structured evidence
 # Observer Context Banner
 # --------------------------
 _observer = collect_observer_context()
+_browser_ip = get_browser_client_ip()
 _banner_color = "🟢" if _observer.cluster_reachable else "🟡"
-st.info(
-    f"{_banner_color} **{_observer.summary}**  \n{_observer.consequence}"
-)
+
+_observer_lines = [f"{_banner_color} **{_observer.summary}**", _observer.consequence]
+
+if _observer.mode in ("node_with_cluster", "node_no_cluster", "node_in_cluster"):
+    _observer_lines.append(
+        "💻 All evidence collection (kubectl, systemctl, host files) runs on this EC2 node — not your browser."
+    )
+    if _browser_ip:
+        _observer_lines.append(
+            f"🌐 You are viewing this from: **{_browser_ip}** (your browser / Mac) — "
+            "the browser is a display surface only."
+        )
+
+st.info("  \n".join(_observer_lines))
 
 # --------------------------
 # Retro Styling

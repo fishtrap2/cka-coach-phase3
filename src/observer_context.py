@@ -189,3 +189,29 @@ def collect_observer_context() -> ObserverContext:
         summary=summary,
         consequence=consequence,
     )
+
+
+def get_browser_client_ip() -> str:
+    """
+    Attempt to get the browser client IP from Streamlit request headers.
+    Returns empty string if not available or not in a request context.
+
+    This shows the student that the browser (their Mac) and the server
+    (the EC2 instance) are two different machines.
+    """
+    try:
+        import streamlit as st
+        headers = st.context.headers
+        # X-Forwarded-For is set by proxies/load balancers
+        forwarded = headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        # X-Real-IP is set by nginx
+        real_ip = headers.get("X-Real-Ip", "")
+        if real_ip:
+            return real_ip.strip()
+        # Direct connection
+        host = headers.get("Host", "")
+        return ""
+    except Exception:
+        return ""
