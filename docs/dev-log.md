@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-05-10 — feature/testbed-setup continued (Amazon Q Developer)
+
+### AI-DLC phase
+Construction (extended) + Operations (in progress)
+
+### What we did
+- AWS IAM role created and attached to both EC2 instances
+- L0 orientation scripts built and enriched with AWS console cross-references
+- Cost visibility added to testbed page and ELS dashboard L0 row
+- `observer_platform.py` created for AWS/GCP/KIND platform detection
+- KIND added as Stage 1 platform with explicit ELS layer warning
+- Observer banner updated with three-machine architecture explanation
+- Multiple bug fixes from live testing
+- Product decision doc written: testbed platform strategy and four curriculum stages
+- Voice and tone rules added as `.amazonq/rules/06-voice-and-tone-rules.md`
+- Learning moments: IMDSv2/IAM, EC2 roles/instance profiles, hairpin NAT, stream editing
+
+### Current AI-DLC status
+- Inception: ✅ approved
+- Construction: ✅ complete
+- Operations: 🔲 in progress — PR not yet raised
+
+### Chat log
+`docs/aidlc/chats/2026-05-10-testbed-completion-kind-l0-cost.md`
+
+### Next session
+Final Phase 5 verification, README update, raise PR, begin Phase 4 planning.
+
+---
+
 ## 2026-05-03 — feature/testbed-setup live testing and extensions (Amazon Q Developer)
 
 ### AI-DLC phase
