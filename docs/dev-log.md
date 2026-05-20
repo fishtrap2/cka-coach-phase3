@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-05-10 — Phase 3 complete — PR #9 merged to main
+
+### What was merged
+- 36 files, 7,129 insertions
+- Testbed workflow (6 backend modules + UI page)
+- L0 infrastructure visibility and cost strip
+- Observer context and platform detection
+- KIND platform support
+- 7 learning moments
+- L0 orientation scripts
+- Updated README, architecture summary, rules
+
+### Status
+- Phase 3: ✅ complete
+- Phase 4: upcoming — multi-testbed hub, curriculum stages
+- Phase 5: planned — deep networking visibility
+
+---
+
 ## 2026-05-10 — feature/testbed-setup continued (Amazon Q Developer)
 
 ### AI-DLC phase

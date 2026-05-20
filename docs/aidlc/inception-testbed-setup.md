@@ -182,7 +182,7 @@ Per `aidlc-workflow-rules.md`, the following need your sign-off before any code 
 - [x] Inception approved
 - [x] Construction started
 - [x] Construction complete (initial build 2026-04-29)
-- [ ] Operations sign-off — in progress
+- [x] Operations sign-off — merged to main 2026-05-10 via PR #9
 
 ## Post-inception changes (construction extensions)
 
