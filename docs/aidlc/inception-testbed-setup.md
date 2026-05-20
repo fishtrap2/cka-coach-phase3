@@ -180,6 +180,47 @@ Per `aidlc-workflow-rules.md`, the following need your sign-off before any code 
 ## Status
 
 - [x] Inception approved
-- [ ] Construction started
-- [ ] Construction complete
-- [ ] Operations sign-off
+- [x] Construction started
+- [x] Construction complete (initial build 2026-04-29)
+- [ ] Operations sign-off — in progress
+
+## Post-inception changes (construction extensions)
+
+The following were added during live testing against the real AWS environment
+and were not in the original inception brief:
+
+| Change | Reason | Commit |
+|---|---|
+| Observer context banner | Student needs to know where cka-coach is running | `664b2b8` |
+| kubectl error output filter | Fabricated data in ELS table when no cluster present | `88d8b3e` |
+| kubectl client-only version suppressed | Misleading version shown without cluster | `4e8b0be` |
+| Phase 2 redesigned as guided steps | Paste/parse UX too complex for beginners | `c57f3f7` |
+| Kubelet deferred to Phase 3 | Not needed until kubeadm init | `c57f3f7` |
+| containerd CRI plugin check added | Real failure hit during testing | `3875b29` |
+| Node name mismatch fix | AWS tag vs VM hostname differ | `76f2c0d` |
+| Phase 2 step locking removed | Students need to move freely between steps | `1c1447e` |
+| Evidence-based phase status strip | Progress bar was button-click driven, not reality-driven | `6eba5a2` |
+| Phase 5 added — deploy cka-coach to cluster | Not in original inception; emerged from testing | `6eba5a2` |
+| phase_evidence.py module added | Supports evidence-based phase inference | `6eba5a2` |
+
+## Open GitHub issues raised during construction
+
+| Issue | Title |
+|---|---|
+| #1 | SSH-based automatic prereq checking (Option B) |
+| #2 | GCP environment validator |
+| #3 | KIND environment validator |
+| #4 | Bare metal / manual IP validator |
+| #5 | AWS IAM role for EC2 |
+| #6 | Secrets management lesson |
+| #7 | cka-coach deployment progression as ELS capstone model |
+| #8 | Completed phases should show summary state when collapsed |
+
+## Operations checklist
+
+- [ ] PR raised from `feature/testbed-setup` → `main`
+- [ ] Full end-to-end test: AWS validation → prereqs → K8s install → CNI → Phase 5
+- [ ] Teardown tested and verified clean
+- [ ] README updated with testbed feature
+- [ ] Build log updated with post-inception changes
+- [ ] Session chat log saved to `docs/aidlc/chats/`

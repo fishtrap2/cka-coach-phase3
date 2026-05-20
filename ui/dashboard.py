@@ -7,6 +7,9 @@ from datetime import datetime
 # Allow imports from ../src
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from observer_context import collect_observer_context, get_browser_client_ip
+from observer_platform import collect_l0_metadata, PLATFORM_AWS, PLATFORM_GCP, PLATFORM_KIND, PLATFORM_UNKNOWN
+
 from state_collector import collect_state
 from dashboard_presenters import (
     build_node_runtime_layer_evidence,
@@ -17,7 +20,7 @@ from dashboard_presenters import (
     cni_summary_text,
     render_network_visual_html,
 )
-from agent import ask_llm
+from agent import ask_llm, llm_available
 from command_boundaries import format_boundary_commands_html, format_boundary_commands_text
 from els_model import ELS_LAYERS
 from lessons import (
@@ -36,6 +39,32 @@ st.set_page_config(layout="wide")
 st.title("🧠 CKA Coach — ELS Console")
 st.subheader("Everything Lives Somewhere...")
 st.caption("A layered Kubernetes learning console powered by structured evidence, the ELS model, and AI explanation.")
+
+# --------------------------
+# Observer Context Banner
+# --------------------------
+_observer = collect_observer_context()
+_browser_ip = get_browser_client_ip()
+_banner_color = "🟢" if _observer.cluster_reachable else "🟡"
+
+_observer_lines = [f"{_banner_color} **{_observer.summary}**", _observer.consequence]
+
+if _observer.mode in ("node_with_cluster", "node_no_cluster", "node_in_cluster"):
+    _observer_lines.append(
+        "💻 All evidence collection (kubectl, systemctl, host files) runs on this EC2 node — not your browser."
+    )
+    if _browser_ip:
+        _observer_lines.append(
+            f"🌐 You are viewing this from: **{_browser_ip}** (your browser / Mac) — "
+            "the browser is a display surface only."
+        )
+    else:
+        _observer_lines.append(
+            "🌐 Your browser is a display surface only — it connects to this node over HTTP. "
+            "Your Mac IP is not exposed without a reverse proxy (nginx/ALB)."
+        )
+
+st.info("  \n".join(_observer_lines))
 
 # --------------------------
 # Retro Styling
@@ -382,6 +411,46 @@ def summarize(state: dict) -> dict:
     oci_text = "<br>".join(node_layer_evidence.get("L2", [])) or (runc_ver or "runc version unknown")
     kernel_text = "<br>".join(node_layer_evidence.get("L1", [])) or f"kernel {kernel_ver or 'unknown'}"
     infra_text = "<br>".join(node_layer_evidence.get("L0", [])) or "VM / virtual hardware"
+
+    # Enrich L0 with cloud metadata if available
+    try:
+        from observer_platform import collect_l0_metadata, PLATFORM_AWS, PLATFORM_GCP, PLATFORM_KIND
+        l0_meta = collect_l0_metadata()
+        if l0_meta.observed and l0_meta.platform in (PLATFORM_AWS, PLATFORM_GCP):
+            parts = []
+            if l0_meta.platform == PLATFORM_AWS:
+                parts.append(f"AWS EC2 | {l0_meta.region or l0_meta.availability_zone}")
+            else:
+                parts.append(f"GCP | {l0_meta.region}")
+            # Show all nodes if available from AWS API
+            if l0_meta.all_nodes:
+                for node in l0_meta.all_nodes:
+                    state_icon = "🟢" if node["state"] == "running" else "🔴"
+                    cost_str = f" | ${node['cost']:.4f} ({node['uptime_hours']}h)" if node["cost"] > 0 else ""
+                    parts.append(
+                        f"{state_icon} {node['name']} | {node['instance_type']} | "
+                        f"{node['instance_id']} | az: {node['az']}{cost_str}"
+                    )
+                if l0_meta.total_cost_usd > 0:
+                    parts.append(
+                        f"Total: ${l0_meta.total_cost_usd:.4f} | "
+                        f"projected 8h: ${l0_meta.projected_8h_cost_usd:.2f}"
+                    )
+            else:
+                # Fallback to single-node metadata
+                if l0_meta.instance_id:
+                    parts.append(f"id: {l0_meta.instance_id}")
+                if l0_meta.ami_id and l0_meta.platform == PLATFORM_AWS:
+                    parts.append(f"ami: {l0_meta.ami_id}")
+                if l0_meta.availability_zone:
+                    parts.append(f"az: {l0_meta.availability_zone}")
+                if l0_meta.estimated_cost_usd > 0:
+                    parts.append(f"cost: ${l0_meta.estimated_cost_usd:.4f} ({l0_meta.uptime_hours}h)")
+            infra_text = "<br>".join(parts)
+        elif l0_meta.platform == PLATFORM_KIND:
+            infra_text = "KIND — local Docker | no cloud charges"
+    except Exception:
+        pass
 
     return {
         "L9": ("User workloads present", True),
@@ -1693,7 +1762,15 @@ with st.container(border=True):
 
 with st.expander("Explain", expanded=True):
     st.caption("Interpreted explanation generated from the structured state and deterministic ELS logic.")
-    if st.button(f"Explain {layer_label(selected_layer)}", key=f"explain_{selected_key}"):
+    if not llm_available():
+        st.info(
+            "🟡 Explain is not available — no OpenAI API key is configured.  \n"
+            "To enable it, set `OPENAI_API_KEY` in your `.env` file or as an environment variable "
+            "before starting cka-coach.  \n"
+            "The rest of the dashboard — ELS table, networking panel, and evidence views — "
+            "works without an API key."
+        )
+    elif st.button(f"Explain {layer_label(selected_layer)}", key=f"explain_{selected_key}"):
         explanation = ask_llm(
             f"Explain current state of {selected_layer['name']}",
             state
@@ -1702,7 +1779,10 @@ with st.expander("Explain", expanded=True):
 
     parsed = st.session_state.get(f"explanation_{selected_key}")
     if not parsed:
-        st.info("Select a layer and click Explain to load the interpreted explanation.")
+        if llm_available():
+            st.info("Select a layer and click Explain to load the interpreted explanation.")
+    elif parsed.get("no_llm"):
+        pass  # already shown the info box above
     elif "error" in parsed:
         st.error(parsed["error"])
     elif "raw_text" in parsed:
