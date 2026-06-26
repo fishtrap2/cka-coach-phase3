@@ -69,6 +69,33 @@ class TestLessons(unittest.TestCase):
         self.assertTrue(any(item["available"] for item in catalog))
         self.assertTrue(any(not item["available"] for item in catalog))
 
+    def test_kubeadm_dirty_reinstall_learning_moment_is_registered_and_documented(self):
+        catalog = lessons.lesson_catalog()
+        entry = next(item for item in catalog if item["id"] == "kubeadm_dirty_reinstall_state")
+        doc_path = os.path.join(os.path.dirname(__file__), "..", entry["doc_path"])
+
+        self.assertFalse(entry["available"])
+        self.assertTrue(os.path.exists(doc_path))
+
+        with open(doc_path, encoding="utf-8") as handle:
+            lesson_text = handle.read()
+
+        required_phrases = [
+            "Recover from Dirty kubeadm init/join State",
+            "Do not use `--ignore-preflight-errors`",
+            "These reset commands are destructive",
+            "sudo kubeadm reset -f",
+            "sudo ss -lntp | egrep '6443|10259|10257|10250|2379|2380'",
+            "kubectl get nodes -o wide",
+            "kubectl get pods -A",
+            "L4.5 Kubernetes API Layer",
+            "L4 Node Agents & Networking",
+            "L5 Controllers",
+            "L1/L2/L3 host networking evidence",
+        ]
+        for phrase in required_phrases:
+            self.assertIn(phrase, lesson_text)
+
     def test_cleanup_lesson_marks_known_good_baseline_completed(self):
         state = _base_state()
         state["versions"]["cni"] = "calico"

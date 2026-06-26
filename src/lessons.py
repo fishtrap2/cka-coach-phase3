@@ -35,6 +35,16 @@ def lesson_catalog() -> List[Dict[str, Any]]:
             "available": False,
         },
         {
+            "id": "kubeadm_dirty_reinstall_state",
+            "title": "Recover from dirty kubeadm init/join state",
+            "description": (
+                "Learning moment: understand why kubeadm reinstall preflight checks "
+                "fail when a previous control plane or worker join left state behind."
+            ),
+            "available": False,
+            "doc_path": "docs/learning-moments/kubeadm-dirty-reinstall-state.md",
+        },
+        {
             "id": "install_calico",
             "title": "Install Calico",
             "description": "Coming soon: guided Calico installation and verification.",

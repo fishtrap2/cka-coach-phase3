@@ -98,6 +98,7 @@ Documented real failures and concepts encountered during live testbed testing:
 - EC2 IAM roles, instance profiles, and temporary credentials
 - AWS hairpin NAT — why VMs can't reach themselves via public IP
 - Stream editing and syntax checking before commits
+- Recover from dirty kubeadm init/join state
 
 ---
 
