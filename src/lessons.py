@@ -45,6 +45,16 @@ def lesson_catalog() -> List[Dict[str, Any]]:
             "doc_path": "docs/learning-moments/kubeadm-dirty-reinstall-state.md",
         },
         {
+            "id": "localhost_is_relative_whisker_access",
+            "title": "Localhost is relative: access Whisker from your Mac",
+            "description": (
+                "Learning moment: understand how a Mac browser reaches Calico Whisker "
+                "through both an SSH tunnel and kubectl port-forward."
+            ),
+            "available": False,
+            "doc_path": "docs/learning-moments/localhost-is-relative-whisker-access.md",
+        },
+        {
             "id": "install_calico",
             "title": "Install Calico",
             "description": "Coming soon: guided Calico installation and verification.",

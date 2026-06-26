@@ -99,6 +99,7 @@ Documented real failures and concepts encountered during live testbed testing:
 - AWS hairpin NAT — why VMs can't reach themselves via public IP
 - Stream editing and syntax checking before commits
 - Recover from dirty kubeadm init/join state
+- Localhost is relative — accessing Calico Whisker from a Mac with SSH and kubectl port-forward
 
 ---
 

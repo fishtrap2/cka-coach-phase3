@@ -96,6 +96,38 @@ class TestLessons(unittest.TestCase):
         for phrase in required_phrases:
             self.assertIn(phrase, lesson_text)
 
+    def test_localhost_is_relative_whisker_learning_moment_is_registered_and_documented(self):
+        catalog = lessons.lesson_catalog()
+        entry = next(item for item in catalog if item["id"] == "localhost_is_relative_whisker_access")
+        doc_path = os.path.join(os.path.dirname(__file__), "..", entry["doc_path"])
+
+        self.assertFalse(entry["available"])
+        self.assertTrue(os.path.exists(doc_path))
+
+        with open(doc_path, encoding="utf-8") as handle:
+            lesson_text = handle.read()
+
+        required_phrases = [
+            "Learning Moment - Localhost Is Relative",
+            "Calico's observability UI",
+            "kubectl port-forward -n calico-system service/whisker 8081:8081",
+            "ssh -L 8081:localhost:8081 student@<control-plane-public-ip>",
+            "http://localhost:8081",
+            "Mac browser",
+            "control-plane localhost:8081",
+            "service/whisker -n calico-system",
+            "kubectl get tigerastatus",
+            "sudo ss -lntp | grep 8081",
+            "L0/L1 infrastructure access path",
+            "L4 Kubernetes API-assisted access path",
+            "L7 Kubernetes Service object / cluster service discovery",
+            "L8 Application Pod",
+            "L4.3 Node Agents & Networking / CNI observability",
+            "Where is localhost in each step of this path?",
+        ]
+        for phrase in required_phrases:
+            self.assertIn(phrase, lesson_text)
+
     def test_cleanup_lesson_marks_known_good_baseline_completed(self):
         state = _base_state()
         state["versions"]["cni"] = "calico"
